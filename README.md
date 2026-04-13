@@ -1,6 +1,3 @@
-# DSP-WSL-Manager
-Manager tool for setting up and using dev environment for DSP study assignment
-
 # DSP WSL Manager — Handleiding
 
 > DT-RAS Digital Signal Processing • Elektrotechniek • Avans Breda
