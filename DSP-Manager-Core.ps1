@@ -1514,12 +1514,26 @@ $script:updateFileMap = @{
 function Get-GitBlobSha {
     param([string]$FilePath)
     # Git blob SHA-1 = SHA1("blob <size>\0<content>")
+    # Git normaliseert CRLF naar LF — we doen hetzelfde voor correcte vergelijking
     if (-not (Test-Path $FilePath)) { return $null }
     $bytes = [System.IO.File]::ReadAllBytes($FilePath)
-    $header = [System.Text.Encoding]::ASCII.GetBytes("blob $($bytes.Length)`0")
+    # Verwijder BOM als aanwezig (UTF-8 BOM = EF BB BF)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        $bytes = $bytes[3..($bytes.Length - 1)]
+    }
+    # Normaliseer CRLF naar LF (zoals git intern doet)
+    $normalized = [System.Collections.Generic.List[byte]]::new($bytes.Length)
+    for ($i = 0; $i -lt $bytes.Length; $i++) {
+        if ($bytes[$i] -eq 0x0D -and ($i + 1) -lt $bytes.Length -and $bytes[$i + 1] -eq 0x0A) {
+            continue  # Skip CR van CRLF
+        }
+        $normalized.Add($bytes[$i])
+    }
+    $cleanBytes = $normalized.ToArray()
+    $header = [System.Text.Encoding]::ASCII.GetBytes("blob $($cleanBytes.Length)`0")
     $sha = [System.Security.Cryptography.SHA1]::Create()
     $sha.TransformBlock($header, 0, $header.Length, $null, 0) | Out-Null
-    $sha.TransformFinalBlock($bytes, 0, $bytes.Length) | Out-Null
+    $sha.TransformFinalBlock($cleanBytes, 0, $cleanBytes.Length) | Out-Null
     return ($sha.Hash | ForEach-Object { $_.ToString("x2") }) -join ""
 }
 
