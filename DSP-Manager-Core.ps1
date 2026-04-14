@@ -230,8 +230,18 @@ $script:dspDistro = "Ubuntu-24.04"
             <DockPanel Margin="16,16,16,8">
                 <!-- Footer -->
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-                    <Button Name="btnCheckUpdate" Style="{StaticResource SmallActionBtn}" Content="&#x1F504; Check for updates"
-                            FontSize="9" Padding="8,4" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                    <Button Name="btnCheckUpdate" Style="{StaticResource SmallActionBtn}" ToolTip="Check for updates"
+                            FontSize="9" Padding="8,4" HorizontalAlignment="Center" Margin="0,0,0,6">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="M12,4 C7.58,4 4,7.58 4,12 S7.58,20 12,20 S20,16.42 20,12 H18 C18,15.31 15.31,18 12,18 S6,15.31 6,12 S8.69,6 12,6 C13.66,6 15.14,6.69 16.22,7.78 L13,11 H20 V4 L17.65,6.35 C16.2,4.9 14.21,4 12,4 Z"
+                                      Fill="#a6e3a1" Stretch="Uniform" Width="11" Height="11" Margin="0,1,5,0"/>
+                                <TextBlock Text="Check for updates" Foreground="#bac2de" FontSize="9" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Ellipse Name="dotUpdate" Width="7" Height="7" Fill="#f38ba8"
+                                     HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0" Visibility="Collapsed"/>
+                        </Grid>
+                    </Button>
                     <TextBlock FontSize="11" FontStyle="Italic" HorizontalAlignment="Center">
                         <Run Text="Crafted by Danny van der Zande" Foreground="#7f849c"/>
                         <Run Text=" - " Foreground="#6c7086"/>
@@ -241,19 +251,7 @@ $script:dspDistro = "Ubuntu-24.04"
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
-                    <!-- App title + update knop -->
-                    <Grid Margin="0,0,0,2">
-                        <TextBlock Text="&#x1F427; DSP WSL Manager" FontSize="18" FontWeight="Bold" Foreground="#cdd6f4"/>
-                        <Button Name="btnUpdate" Style="{StaticResource SmallActionBtn}" ToolTip="Controleer op updates"
-                                HorizontalAlignment="Right" VerticalAlignment="Center" Width="22" Height="20" Padding="0" Visibility="Collapsed">
-                            <Grid>
-                                <Path Data="M12,4 C7.58,4 4,7.58 4,12 S7.58,20 12,20 S20,16.42 20,12 H18 C18,15.31 15.31,18 12,18 S6,15.31 6,12 S8.69,6 12,6 C13.66,6 15.14,6.69 16.22,7.78 L13,11 H20 V4 L17.65,6.35 C16.2,4.9 14.21,4 12,4 Z"
-                                      Fill="#a6e3a1" Stretch="Uniform" Width="13" Height="13"/>
-                                <Ellipse Name="dotUpdate" Width="7" Height="7" Fill="#f38ba8"
-                                         HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-2,0" Visibility="Collapsed"/>
-                            </Grid>
-                        </Button>
-                    </Grid>
+                    <TextBlock Text="&#x1F427; DSP WSL Manager" FontSize="18" FontWeight="Bold" Foreground="#cdd6f4" Margin="0,0,0,2"/>
                     <TextBlock Text="DT-RAS Elektrotechniek &#x2022; Avans Breda" FontSize="9" Foreground="#6c7086" Margin="0,0,0,2"/>
                     <TextBlock Text="Manager tool for setting up and using dev environment for DSP study assignment" FontSize="8" Foreground="#585b70" TextWrapping="Wrap" Margin="0,0,0,16"/>
 
@@ -691,7 +689,6 @@ $linkProjectAuthor.Add_RequestNavigate({
     Start-Process $e.Uri.AbsoluteUri
     $e.Handled = $true
 })
-$btnUpdate = $window.FindName("btnUpdate")
 $dotUpdate = $window.FindName("dotUpdate")
 # Dialog overlay controls
 $dialogOverlay = $window.FindName("dialogOverlay")
@@ -1560,17 +1557,14 @@ function Check-ForUpdates {
 
         if ($script:updateFiles.Count -gt 0) {
             $script:updateAvailable = $true
-            $btnUpdate.Visibility = "Visible"
             $dotUpdate.Visibility = "Visible"
             Write-Log "$($script:updateFiles.Count) update(s) beschikbaar."
         } else {
-            $btnUpdate.Visibility = "Visible"
             $dotUpdate.Visibility = "Collapsed"
             Write-Log "Geen updates gevonden — alles is up-to-date."
         }
     } catch {
         Write-Log "Update check mislukt: $_"
-        $btnUpdate.Visibility = "Collapsed"
     }
 }
 
@@ -1642,7 +1636,6 @@ $script:doUpdateCheck = {
     }
 }
 
-$btnUpdate.Add_Click({ & $script:doUpdateCheck })
 $btnCheckUpdate.Add_Click({ & $script:doUpdateCheck })
 
 # Button: Install WSL (shown when WSL is not present on the system)
@@ -3103,6 +3096,19 @@ $loadTimer.Add_Tick({
             $pnlLoading.Visibility = "Collapsed"
             $pnlMainContent.Visibility = "Visible"
             Set-CheckItem $chkInit "Interface voorbereiden" $true "OK"
+
+            # Auto-update check na korte vertraging
+            $script:updateCheckTimer = New-Object System.Windows.Threading.DispatcherTimer
+            $script:updateCheckTimer.Interval = [TimeSpan]::FromSeconds(2)
+            $script:updateCheckTimer.Add_Tick({
+                $script:updateCheckTimer.Stop()
+                try {
+                    Check-ForUpdates
+                    if ($script:updateAvailable) { Install-Updates }
+                } catch { Write-Log "Auto-update check fout: $_" }
+            })
+            $script:updateCheckTimer.Start()
+
             $script:loadStep = 6
         }
         6 {
