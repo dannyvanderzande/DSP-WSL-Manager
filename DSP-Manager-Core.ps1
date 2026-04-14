@@ -2762,7 +2762,9 @@ $btnBuild.Add_Click({
     $btnBuild.IsEnabled = $false
     $btnFlash.IsEnabled = $false
     $script:buildStartTime = [DateTime]::Now
-    $btnBuild.Content = "`u{1F528} Builden... 0:00"
+    $script:buildEmoji = [char]::ConvertFromUtf32(0x1F528)
+    $btnBuild.Content = "$($script:buildEmoji) Building... 0:00"
+    $btnBuild.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#f9e2af")
     $window.Title = "DSP WSL Manager - BEZIG MET BUILDEN..."
 
     # Timer: update knoptekst elke seconde met verstreken tijd
@@ -2772,7 +2774,7 @@ $btnBuild.Add_Click({
         $elapsed = [DateTime]::Now - $script:buildStartTime
         $mins = [int][math]::Floor($elapsed.TotalMinutes)
         $secs = [int]($elapsed.Seconds)
-        $btnBuild.Content = "`u{1F528} Builden... ${mins}:$($secs.ToString('D2'))"
+        $btnBuild.Content = "$($script:buildEmoji) Building... ${mins}:$($secs.ToString('D2'))"
     })
     $script:buildTimer.Start()
 
@@ -2841,6 +2843,7 @@ echo ">>> BUILD VOLTOOID"
         $secs = [int]($elapsed.Seconds)
         Write-Log "Build duur: ${mins}:$($secs.ToString('D2'))"
         $btnBuild.Content = "`u{1F528} Build Project"
+        $btnBuild.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#cdd6f4")
         $window.Title = "DSP WSL Manager"
         Update-TerminalButton
         Update-PicoButton
