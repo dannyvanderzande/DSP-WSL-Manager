@@ -29,9 +29,9 @@ Als WSL ontbreekt verschijnt er een rode banner. Klik op **WSL Installeren**, ac
 
 Klik op **Nieuw** bij het WSL Distributies paneel. Er wordt automatisch een Ubuntu 24.04 omgeving geïnstalleerd met alle benodigde tools (ARM toolchain, Pico SDK, picotool). Dit duurt enkele minuten.
 
-### Stap 4 — DSP project ophalen (eenmalig)
+### Stap 4 — DSP project koppelen (eenmalig)
 
-Klik op **DSP Project Ophalen** en kies een map. De Git-repository wordt gekloond. De tool onthoudt de locatie.
+Klik op **Koppelen** bij het DSP Project paneel en kies een map. Als de map al een `avd-dsp-project` folder bevat, wordt het bestaande project gekoppeld. Anders wordt de Git-repository automatisch van GitHub gekloond. De tool onthoudt de locatie.
 
 ### Stap 5 — Pico aansluiten en koppelen
 
@@ -53,7 +53,7 @@ Na de eerste setup herhaal je alleen stap 5 en 6. De typische cyclus is: code sc
 
 De bovenste sectie bevat de knoppen voor je dagelijks werk.
 
-**DSP Project Ophalen** kloont de DSP Git-repository vanuit GitHub naar een zelfgekozen map. Dit hoef je maar één keer te doen.
+**Koppelen** verbindt een DSP project met de tool. Kies een map met een bestaand `avd-dsp-project` of een lege map — in dat geval wordt de Git-repository automatisch van GitHub gekloond. Dit hoef je maar één keer te doen.
 
 **Open Terminal** opent een Linux-terminal (WSL) die direct in je projectmap start. Handig voor handmatige commando's, debugging of git-operaties.
 
