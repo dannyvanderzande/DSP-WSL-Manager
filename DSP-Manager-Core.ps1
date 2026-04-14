@@ -1517,11 +1517,8 @@ function Get-GitBlobSha {
     # Git normaliseert CRLF naar LF — we doen hetzelfde voor correcte vergelijking
     if (-not (Test-Path $FilePath)) { return $null }
     $bytes = [System.IO.File]::ReadAllBytes($FilePath)
-    # Verwijder BOM als aanwezig (UTF-8 BOM = EF BB BF)
-    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
-        $bytes = $bytes[3..($bytes.Length - 1)]
-    }
-    # Normaliseer CRLF naar LF (zoals git intern doet)
+    # Normaliseer CRLF naar LF (zoals git intern doet bij core.autocrlf)
+    # BOM wordt NIET gestript — git bewaart BOM in de blob
     $normalized = [System.Collections.Generic.List[byte]]::new($bytes.Length)
     for ($i = 0; $i -lt $bytes.Length; $i++) {
         if ($bytes[$i] -eq 0x0D -and ($i + 1) -lt $bytes.Length -and $bytes[$i + 1] -eq 0x0A) {
