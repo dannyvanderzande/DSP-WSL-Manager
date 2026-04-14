@@ -1004,6 +1004,19 @@ function Update-StatusPanel {
             $wslRunning = $true
         }
     }
+
+    # Keep-alive: als WSL eerder draaide maar nu gestopt is, herstart automatisch
+    if (-not $wslRunning -and $script:wslIsRunning -and $script:wslInstalled -and $selected) {
+        Write-Log "WSL distro '$($selected.Name)' is gestopt — wordt automatisch herstart..."
+        try {
+            & wsl -d $selected.Name -- echo "keepalive" 2>&1 | Out-Null
+            $wslRunning = $true
+            Write-Log "WSL distro '$($selected.Name)' succesvol herstart."
+        } catch {
+            Write-Log "WSL herstart mislukt: $_"
+        }
+    }
+
     $script:wslIsRunning = $wslRunning
     $greenBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#a6e3a1")
     $grayBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#6c7086")
