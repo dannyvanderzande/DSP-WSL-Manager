@@ -1583,6 +1583,17 @@ function Check-ForUpdates {
     }
 }
 
+function Restart-App {
+    $scriptPath = Join-Path $scriptDir "DSP-Manager-Core.ps1"
+    $restartBat = Join-Path $env:TEMP "dsp-restart.bat"
+    $batContent = "@echo off`r`ntimeout /t 2 /nobreak >nul`r`nstart `"`" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`"`r`ndel `"%~f0`""
+    [System.IO.File]::WriteAllText($restartBat, $batContent, [System.Text.Encoding]::ASCII)
+    Write-Log "Restart bat geschreven: $restartBat"
+    Start-Process cmd.exe -ArgumentList "/c `"$restartBat`"" -WindowStyle Hidden
+    $statusTimer.Stop()
+    $window.Close()
+}
+
 function Install-Updates {
     if ($script:updateFiles.Count -eq 0) {
         Write-Log "Geen updates om te installeren."
@@ -1622,19 +1633,7 @@ function Install-Updates {
     if ($errors.Count -eq 0) {
         Write-Log "Alle $updatedCount bestand(en) bijgewerkt. Applicatie wordt herstart..."
         Show-CustomDialog -Message "Update succesvol!`n`nDe applicatie wordt herstart." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
-
-        # Herstart: schrijf tijdelijk bat-bestand dat wacht en dan herstart
-        $scriptPath = Join-Path $scriptDir "DSP-Manager-Core.ps1"
-        $restartBat = Join-Path $env:TEMP "dsp-restart.bat"
-        @"
-@echo off
-timeout /t 2 /nobreak >nul
-start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$scriptPath"
-del "%~f0"
-"@ | Set-Content -Path $restartBat -Encoding ASCII
-        Start-Process $restartBat -WindowStyle Hidden
-        $statusTimer.Stop()
-        $window.Close()
+        Restart-App
     } else {
         $errList = $errors -join ", "
         Show-CustomDialog -Message "$updatedCount bestand(en) bijgewerkt, maar er waren fouten bij: $errList`n`nBekijk het logvenster voor details." -Title "Update Gedeeltelijk" -Buttons "OK" -Type "Warning"
@@ -1668,17 +1667,7 @@ if (Test-Path $bypassFile) {
 }
 $btnDevRestart.Add_Click({
     Write-Log "Handmatige herstart..."
-    $scriptPath = Join-Path $scriptDir "DSP-Manager-Core.ps1"
-    $restartBat = Join-Path $env:TEMP "dsp-restart.bat"
-    @"
-@echo off
-timeout /t 2 /nobreak >nul
-start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$scriptPath"
-del "%~f0"
-"@ | Set-Content -Path $restartBat -Encoding ASCII
-    Start-Process $restartBat -WindowStyle Hidden
-    $statusTimer.Stop()
-    $window.Close()
+    Restart-App
 })
 
 # Button: Install WSL (shown when WSL is not present on the system)
