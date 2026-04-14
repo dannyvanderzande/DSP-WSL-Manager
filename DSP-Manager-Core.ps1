@@ -1,4 +1,4 @@
-﻿# DSP WSL Manager - Core Script (Start via de 'Start DSP Manager.bat' file!)
+﻿#! DSP WSL Manager - Core Script (Start via de 'Start DSP Manager.bat' file!)
 # Beheert WSL distro's, installeert nieuwe DSP distro (Ubuntu 24.04) met automatische credentials
 
 Add-Type -AssemblyName PresentationFramework
@@ -1584,14 +1584,33 @@ function Check-ForUpdates {
 }
 
 function Restart-App {
+    param([string]$UpdateTempDir = "")
     $scriptPath = Join-Path $scriptDir "DSP-Manager-Core.ps1"
     $restartBat = Join-Path $env:TEMP "dsp-restart.bat"
-    $batContent = "@echo off`r`ntimeout /t 2 /nobreak >nul`r`nstart `"`" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`"`r`ndel `"%~f0`""
+
+    $batLines = @()
+    $batLines += "@echo off"
+    $batLines += "timeout /t 2 /nobreak >nul"
+
+    # Als er een temp update-map is, kopieer bestanden naar de doelmap
+    if ($UpdateTempDir -and (Test-Path $UpdateTempDir)) {
+        $batLines += "echo Updating files..."
+        Get-ChildItem -Path $UpdateTempDir -File | ForEach-Object {
+            $src = $_.FullName
+            $dst = Join-Path $scriptDir $_.Name
+            $batLines += "copy /y `"$src`" `"$dst`""
+        }
+        $batLines += "rmdir /s /q `"$UpdateTempDir`""
+    }
+
+    $batLines += "start `"`" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+    $batLines += "del `"%~f0`""
+
+    $batContent = $batLines -join "`r`n"
     [System.IO.File]::WriteAllText($restartBat, $batContent, [System.Text.Encoding]::ASCII)
     Write-Log "Restart bat geschreven: $restartBat"
     Start-Process cmd.exe -ArgumentList "/c `"$restartBat`"" -WindowStyle Hidden
-    $statusTimer.Stop()
-    $window.Close()
+    Stop-Process -Id $PID -Force
 }
 
 function Install-Updates {
@@ -1605,24 +1624,27 @@ function Install-Updates {
     $choice = Show-CustomDialog -Message "Er zijn $($script:updateFiles.Count) update(s) beschikbaar:`n`n- $fileList`n`nWil je deze bestanden bijwerken? De huidige versies worden overschreven." -Title "Updates Beschikbaar" -Buttons "YesNo" -Type "Question"
     if ($choice -ne "Yes") { return }
 
+    # Download naar tijdelijke map (NIET rechtstreeks overschrijven — het script draait nog)
+    $tempUpdateDir = Join-Path $env:TEMP "dsp-update-staging"
+    if (Test-Path $tempUpdateDir) { Remove-Item $tempUpdateDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $tempUpdateDir -Force | Out-Null
+
     $updatedCount = 0
     $errors = @()
 
     foreach ($file in $script:updateFiles) {
         $repoPath = $file.RepoPath
-        $localRelPath = $file.LocalPath.Substring($scriptDir.Length + 1)
-        $fileName = Split-Path $localRelPath -Leaf
-        $targetPath = $file.LocalPath
+        $fileName = Split-Path $file.LocalPath -Leaf
+        $tempPath = Join-Path $tempUpdateDir $fileName
 
         try {
-            # Download van GitHub direct naar het lokale bestand
             $rawUrl = "https://raw.githubusercontent.com/$($script:updateGitHubRepo)/$($script:updateBranch)/$($repoPath -replace ' ', '%20')"
-            Write-Log "Bijwerken: $fileName..."
-            Invoke-WebRequest -Uri $rawUrl -OutFile $targetPath -UseBasicParsing -TimeoutSec 30
-            Write-Log "Bijgewerkt: $fileName"
+            Write-Log "Downloaden: $fileName naar temp..."
+            Invoke-WebRequest -Uri $rawUrl -OutFile $tempPath -UseBasicParsing -TimeoutSec 30
+            Write-Log "Gedownload: $fileName"
             $updatedCount++
         } catch {
-            Write-Log "Fout bij bijwerken van ${fileName}: $_"
+            Write-Log "Fout bij downloaden van ${fileName}: $_"
             $errors += $fileName
         }
     }
@@ -1631,12 +1653,14 @@ function Install-Updates {
     $dotUpdate.Visibility = "Collapsed"
 
     if ($errors.Count -eq 0) {
-        Write-Log "Alle $updatedCount bestand(en) bijgewerkt. Applicatie wordt herstart..."
-        Show-CustomDialog -Message "Update succesvol!`n`nDe applicatie wordt herstart." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
-        Restart-App
+        Write-Log "Alle $updatedCount bestand(en) gedownload. Applicatie wordt herstart met update..."
+        Show-CustomDialog -Message "Update succesvol gedownload!`n`nDe applicatie wordt herstart om de update toe te passen." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
+        Restart-App -UpdateTempDir $tempUpdateDir
     } else {
+        # Bij fouten: ruim temp op, kopieer wat wel lukte direct
         $errList = $errors -join ", "
-        Show-CustomDialog -Message "$updatedCount bestand(en) bijgewerkt, maar er waren fouten bij: $errList`n`nBekijk het logvenster voor details." -Title "Update Gedeeltelijk" -Buttons "OK" -Type "Warning"
+        Show-CustomDialog -Message "$updatedCount bestand(en) gedownload, maar er waren fouten bij: $errList`n`nBekijk het logvenster voor details." -Title "Update Gedeeltelijk" -Buttons "OK" -Type "Warning"
+        if (Test-Path $tempUpdateDir) { Remove-Item $tempUpdateDir -Recurse -Force }
     }
 }
 
