@@ -1621,9 +1621,16 @@ function Install-Updates {
         Write-Log "Alle $updatedCount bestand(en) bijgewerkt. Applicatie wordt herstart..."
         Show-CustomDialog -Message "Update succesvol!`n`nDe applicatie wordt herstart." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
 
-        # Herstart: start nieuw proces en sluit huidige af
+        # Herstart: schrijf tijdelijk bat-bestand dat wacht en dan herstart
         $scriptPath = Join-Path $scriptDir "DSP-Manager-Core.ps1"
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+        $restartBat = Join-Path $env:TEMP "dsp-restart.bat"
+        @"
+@echo off
+timeout /t 2 /nobreak >nul
+start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$scriptPath"
+del "%~f0"
+"@ | Set-Content -Path $restartBat -Encoding ASCII
+        Start-Process $restartBat -WindowStyle Hidden
         $statusTimer.Stop()
         $window.Close()
     } else {
