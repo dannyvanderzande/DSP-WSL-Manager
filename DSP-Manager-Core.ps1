@@ -1,4 +1,4 @@
-﻿# DSP WSL Manager - Core Script (Start via de 'Start DSP Manager.bat' file!)
+﻿#! DSP WSL Manager - Core Script (Start via de 'Start DSP Manager.bat' file!)
 # Beheert WSL distro's, installeert nieuwe DSP distro (Ubuntu 24.04) met automatische credentials
 
 Add-Type -AssemblyName PresentationFramework
@@ -1599,32 +1599,22 @@ function Restart-App {
     $scriptPath = Join-Path $scriptDir "DSP-Manager-Core.ps1"
     $restartBat = Join-Path $env:TEMP "dsp-restart.bat"
 
-    $logFile = Join-Path $scriptDir "dsp-restart-debug.log"
     $batLines = @()
     $batLines += "@echo off"
-    $batLines += "echo [%date% %time%] Restart bat gestart > `"$logFile`""
-    $batLines += "echo [%date% %time%] Wachten 2 seconden... >> `"$logFile`""
     $batLines += "timeout /t 2 /nobreak >nul"
-    $batLines += "echo [%date% %time%] Timeout voorbij >> `"$logFile`""
 
     # Als er een temp update-map is, kopieer bestanden naar de doelmap
     if ($UpdateTempDir -and (Test-Path $UpdateTempDir)) {
-        $batLines += "echo [%date% %time%] Temp dir: $UpdateTempDir >> `"$logFile`""
+        $batLines += "echo Updating files..."
         Get-ChildItem -Path $UpdateTempDir -File | ForEach-Object {
             $src = $_.FullName
             $dst = Join-Path $scriptDir $_.Name
-            $batLines += "echo [%date% %time%] Kopieer: $($_.Name) >> `"$logFile`""
-            $batLines += "copy /y `"$src`" `"$dst`" >> `"$logFile`" 2>&1"
+            $batLines += "copy /y `"$src`" `"$dst`""
         }
-        $batLines += "echo [%date% %time%] Opruimen temp dir >> `"$logFile`""
-        $batLines += "rmdir /s /q `"$UpdateTempDir`" >> `"$logFile`" 2>&1"
-    } else {
-        $batLines += "echo [%date% %time%] Geen temp dir (gewone restart) >> `"$logFile`""
+        $batLines += "rmdir /s /q `"$UpdateTempDir`""
     }
 
-    $batLines += "echo [%date% %time%] Starten powershell... >> `"$logFile`""
     $batLines += "start `"`" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
-    $batLines += "echo [%date% %time%] Powershell gestart >> `"$logFile`""
     $batLines += "del `"%~f0`""
 
     $batContent = $batLines -join "`r`n"
@@ -3233,4 +3223,4 @@ $window.Add_ContentRendered({
 $window.ShowDialog() | Out-Null
 
 # Cleanup: stop timers when window closes
-$statusTimer.Stop() 
+$statusTimer.Stop()
