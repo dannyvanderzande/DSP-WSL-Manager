@@ -1572,44 +1572,42 @@ function Install-Updates {
     }
 
     $fileList = ($script:updateFiles | ForEach-Object { Split-Path $_.LocalPath -Leaf }) -join "`n- "
-    $updateDir = Join-Path $scriptDir "update"
 
-    $choice = Show-CustomDialog -Message "Er zijn $($script:updateFiles.Count) update(s) beschikbaar:`n`n- $fileList`n`nBestanden worden gedownload naar:`n$updateDir`n`nDe huidige versie wordt NIET overschreven." -Title "Updates Beschikbaar" -Buttons "YesNo" -Type "Question"
+    $choice = Show-CustomDialog -Message "Er zijn $($script:updateFiles.Count) update(s) beschikbaar:`n`n- $fileList`n`nWil je deze bestanden bijwerken? De huidige versies worden overschreven." -Title "Updates Beschikbaar" -Buttons "YesNo" -Type "Question"
     if ($choice -ne "Yes") { return }
 
-    # Maak update directory aan (leeg beginnen)
-    if (Test-Path $updateDir) { Remove-Item $updateDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $updateDir -Force | Out-Null
+    $updatedCount = 0
+    $errors = @()
 
     foreach ($file in $script:updateFiles) {
         $repoPath = $file.RepoPath
         $localRelPath = $file.LocalPath.Substring($scriptDir.Length + 1)
         $fileName = Split-Path $localRelPath -Leaf
-        $targetPath = Join-Path $updateDir $localRelPath
+        $targetPath = $file.LocalPath
 
         try {
-            # Zorg dat de doelmap bestaat binnen update/
-            $targetDir = Split-Path $targetPath -Parent
-            if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
-
-            # Download van GitHub
+            # Download van GitHub direct naar het lokale bestand
             $rawUrl = "https://raw.githubusercontent.com/$($script:updateGitHubRepo)/$($script:updateBranch)/$($repoPath -replace ' ', '%20')"
-            Write-Log "Downloaden: $fileName..."
+            Write-Log "Bijwerken: $fileName..."
             Invoke-WebRequest -Uri $rawUrl -OutFile $targetPath -UseBasicParsing -TimeoutSec 30
-            Write-Log "Gedownload: $fileName -> update\$localRelPath"
+            Write-Log "Bijgewerkt: $fileName"
+            $updatedCount++
         } catch {
-            Write-Log "Fout bij downloaden van ${fileName}: $_"
+            Write-Log "Fout bij bijwerken van ${fileName}: $_"
+            $errors += $fileName
         }
     }
 
     $script:updateAvailable = $false
     $dotUpdate.Visibility = "Collapsed"
 
-    Write-Log "Updates gedownload naar: $updateDir"
-    Show-CustomDialog -Message "Updates gedownload naar de 'update' map:`n$updateDir`n`nControleer de bestanden en kopieer ze handmatig als alles klopt." -Title "Updates Gedownload" -Buttons "OK" -Type "Success"
-
-    # Open de update map in Explorer
-    Start-Process explorer.exe -ArgumentList $updateDir
+    if ($errors.Count -eq 0) {
+        Write-Log "Alle $updatedCount bestand(en) bijgewerkt."
+        Show-CustomDialog -Message "$updatedCount bestand(en) zijn bijgewerkt.`n`nHerstart de applicatie om de nieuwe versie te gebruiken." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
+    } else {
+        $errList = $errors -join ", "
+        Show-CustomDialog -Message "$updatedCount bestand(en) bijgewerkt, maar er waren fouten bij: $errList`n`nBekijk het logvenster voor details." -Title "Update Gedeeltelijk" -Buttons "OK" -Type "Warning"
+    }
 }
 
 # Update knop: klik = installeer updates of check handmatig
