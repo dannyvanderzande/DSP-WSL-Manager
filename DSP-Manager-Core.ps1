@@ -1662,8 +1662,9 @@ function Install-Updates {
 
     if ($errors.Count -eq 0) {
         Write-Log "Alle $updatedCount bestand(en) bijgewerkt."
-        Show-CustomDialog -Message "Update succesvol!`n`n$updatedCount bestand(en) bijgewerkt.`nHerstart de applicatie om de update te activeren." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
         $statusTimer.Stop()
+        # Gewone MessageBox ipv Show-CustomDialog (DispatcherFrame blokkeert Close)
+        [System.Windows.MessageBox]::Show("Update succesvol! $updatedCount bestand(en) bijgewerkt.`nHerstart de applicatie om de update te activeren.", "Update Voltooid", "OK", "Information") | Out-Null
         $window.Close()
     } else {
         $errList = $errors -join ", "
