@@ -1590,10 +1590,8 @@ function Restart-App {
     [System.IO.File]::WriteAllText($restartBat, $batContent, [System.Text.Encoding]::ASCII)
     Write-Log "Restart bat geschreven: $restartBat"
     Start-Process cmd.exe -ArgumentList "/c `"$restartBat`"" -WindowStyle Hidden
-    Write-Log "Applicatie wordt afgesloten..."
     $statusTimer.Stop()
     $window.Close()
-    [Environment]::Exit(0)
 }
 
 function Install-Updates {
