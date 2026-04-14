@@ -2,7 +2,7 @@
 
 > DT-RAS Digital Signal Processing • Elektrotechniek • Avans Breda
 
-De DSP WSL Manager automatiseert het opzetten van een complete Linux-ontwikkelomgeving voor de Raspberry Pi Pico, direct vanuit Windows — zonder dat je zelf Linux-commando's hoeft te kennen.
+De DSP WSL Manager automatiseert het opzetten van een complete Linux-ontwikkelomgeving voor de Raspberry Pi Pico, direct vanuit Windows, zonder dat je zelf Linux-commando's hoeft te kennen.
 
 ---
 
