@@ -1637,27 +1637,22 @@ function Install-Updates {
     $choice = Show-CustomDialog -Message "Er zijn $($script:updateFiles.Count) update(s) beschikbaar:`n`n- $fileList`n`nWil je deze bestanden bijwerken? De huidige versies worden overschreven." -Title "Updates Beschikbaar" -Buttons "YesNo" -Type "Question"
     if ($choice -ne "Yes") { return }
 
-    # Download naar tijdelijke map (NIET rechtstreeks overschrijven — het script draait nog)
-    $tempUpdateDir = Join-Path $env:TEMP "dsp-update-staging"
-    if (Test-Path $tempUpdateDir) { Remove-Item $tempUpdateDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $tempUpdateDir -Force | Out-Null
-
     $updatedCount = 0
     $errors = @()
 
     foreach ($file in $script:updateFiles) {
         $repoPath = $file.RepoPath
         $fileName = Split-Path $file.LocalPath -Leaf
-        $tempPath = Join-Path $tempUpdateDir $fileName
+        $targetPath = $file.LocalPath
 
         try {
             $rawUrl = "https://raw.githubusercontent.com/$($script:updateGitHubRepo)/$($script:updateBranch)/$($repoPath -replace ' ', '%20')"
-            Write-Log "Downloaden: $fileName naar temp..."
-            Invoke-WebRequest -Uri $rawUrl -OutFile $tempPath -UseBasicParsing -TimeoutSec 30
-            Write-Log "Gedownload: $fileName"
+            Write-Log "Bijwerken: $fileName..."
+            Invoke-WebRequest -Uri $rawUrl -OutFile $targetPath -UseBasicParsing -TimeoutSec 30
+            Write-Log "Bijgewerkt: $fileName"
             $updatedCount++
         } catch {
-            Write-Log "Fout bij downloaden van ${fileName}: $_"
+            Write-Log "Fout bij bijwerken van ${fileName}: $_"
             $errors += $fileName
         }
     }
@@ -1666,14 +1661,13 @@ function Install-Updates {
     $dotUpdate.Visibility = "Collapsed"
 
     if ($errors.Count -eq 0) {
-        Write-Log "Alle $updatedCount bestand(en) gedownload. Applicatie wordt herstart met update..."
-        Show-CustomDialog -Message "Update succesvol gedownload!`n`nDe applicatie wordt herstart om de update toe te passen." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
-        Restart-App -UpdateTempDir $tempUpdateDir
+        Write-Log "Alle $updatedCount bestand(en) bijgewerkt."
+        Show-CustomDialog -Message "Update succesvol!`n`n$updatedCount bestand(en) bijgewerkt.`nHerstart de applicatie om de update te activeren." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
+        $statusTimer.Stop()
+        $window.Close()
     } else {
-        # Bij fouten: ruim temp op, kopieer wat wel lukte direct
         $errList = $errors -join ", "
-        Show-CustomDialog -Message "$updatedCount bestand(en) gedownload, maar er waren fouten bij: $errList`n`nBekijk het logvenster voor details." -Title "Update Gedeeltelijk" -Buttons "OK" -Type "Warning"
-        if (Test-Path $tempUpdateDir) { Remove-Item $tempUpdateDir -Recurse -Force }
+        Show-CustomDialog -Message "$updatedCount bestand(en) bijgewerkt, maar er waren fouten bij: $errList`n`nBekijk het logvenster voor details." -Title "Update Gedeeltelijk" -Buttons "OK" -Type "Warning"
     }
 }
 
@@ -2898,7 +2892,7 @@ echo ">>> BUILD VOLTOOID"
         $mins = [int][math]::Floor($elapsed.TotalMinutes)
         $secs = [int]($elapsed.Seconds)
         Write-Log "Build duur: ${mins}:$($secs.ToString('D2'))"
-        $btnBuild.Content = "`u{1F528} Build Project"
+        $btnBuild.Content = "$($script:buildEmoji) Build Project"
         $btnBuild.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#cdd6f4")
         $window.Title = "DSP WSL Manager"
         Update-TerminalButton
