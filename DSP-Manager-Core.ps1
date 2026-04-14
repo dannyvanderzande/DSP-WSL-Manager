@@ -230,6 +230,8 @@ $script:dspDistro = "Ubuntu-24.04"
             <DockPanel Margin="16,16,16,8">
                 <!-- Footer -->
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                    <Button Name="btnDevRestart" Style="{StaticResource SmallActionBtn}" Content="&#x1F504; Restart app"
+                            FontSize="9" Padding="8,4" HorizontalAlignment="Center" Margin="0,0,0,4" Visibility="Collapsed"/>
                     <Button Name="btnCheckUpdate" Style="{StaticResource SmallActionBtn}" ToolTip="Check for updates"
                             FontSize="9" Padding="8,4" HorizontalAlignment="Center" Margin="0,0,0,6">
                         <Grid>
@@ -1657,6 +1659,27 @@ $script:doUpdateCheck = {
 }
 
 $btnCheckUpdate.Add_Click({ & $script:doUpdateCheck })
+
+# Dev restart knop: alleen zichtbaar als update-bypass bestaat
+$btnDevRestart = $window.FindName("btnDevRestart")
+$bypassFile = Join-Path $scriptDir "update-bypass"
+if (Test-Path $bypassFile) {
+    $btnDevRestart.Visibility = "Visible"
+}
+$btnDevRestart.Add_Click({
+    Write-Log "Handmatige herstart..."
+    $scriptPath = Join-Path $scriptDir "DSP-Manager-Core.ps1"
+    $restartBat = Join-Path $env:TEMP "dsp-restart.bat"
+    @"
+@echo off
+timeout /t 2 /nobreak >nul
+start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$scriptPath"
+del "%~f0"
+"@ | Set-Content -Path $restartBat -Encoding ASCII
+    Start-Process $restartBat -WindowStyle Hidden
+    $statusTimer.Stop()
+    $window.Close()
+})
 
 # Button: Install WSL (shown when WSL is not present on the system)
 $btnInstallWSL.Add_Click({
