@@ -1602,8 +1602,14 @@ function Install-Updates {
     $dotUpdate.Visibility = "Collapsed"
 
     if ($errors.Count -eq 0) {
-        Write-Log "Alle $updatedCount bestand(en) bijgewerkt."
-        Show-CustomDialog -Message "$updatedCount bestand(en) zijn bijgewerkt.`n`nHerstart de applicatie om de nieuwe versie te gebruiken." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
+        Write-Log "Alle $updatedCount bestand(en) bijgewerkt. Applicatie wordt herstart..."
+        Show-CustomDialog -Message "Update succesvol!`n`nDe applicatie wordt herstart." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
+
+        # Herstart: start nieuw proces en sluit huidige af
+        $scriptPath = Join-Path $scriptDir "DSP-Manager-Core.ps1"
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+        $statusTimer.Stop()
+        $window.Close()
     } else {
         $errList = $errors -join ", "
         Show-CustomDialog -Message "$updatedCount bestand(en) bijgewerkt, maar er waren fouten bij: $errList`n`nBekijk het logvenster voor details." -Title "Update Gedeeltelijk" -Buttons "OK" -Type "Warning"
