@@ -1,8 +1,8 @@
-# Logs
-WSL-Setup.log
+# Alles negeren
+*
 
-# Config (bevat lokale paden)
-WSL-Manager.conf
-
-# IDE
-.vscode/
+# Alleen deze bestanden toestaan
+!.gitignore
+!DSP-Manager-Core.ps1
+!Start DSP Manager.bat
+!README.

@@ -5,6 +5,9 @@ Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
+# Versie
+$script:appVersion = "2.0.0"
+
 # Determine script directory early (needed for log and config files)
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Path) { Split-Path $MyInvocation.MyCommand.Path } else { (Get-Location).Path }
 
@@ -31,7 +34,7 @@ function Test-WslState {
         # First check if wsl.exe is the full version (not just the stub)
         $helpOut = (& wsl --help 2>&1 | Out-String) -replace '\x00', ''
         if ($helpOut.Trim().Length -lt 1500 -or $helpOut -notmatch "--export|--import|--set-default") {
-            $state.reason = "WSL is niet geinstalleerd."
+            $state.reason = "WSL is niet geïnstalleerd."
             $state.needsInstall = $true
             if (-not $vtEnabled) {
                 $state.reason += "`n`nLET OP: Virtualisatie (VT-x/AMD-V) staat UIT in het BIOS.`nDit moet eerst worden ingeschakeld voordat WSL kan werken."
@@ -77,6 +80,7 @@ function Test-WslState {
 # Initialize state — will be populated after window is shown
 $script:wslState = @{ ok = $false; reason = "Laden..."; needsVMPlatform = $false; needsBIOS = $false; needsInstall = $false }
 $script:wslInstalled = $false
+$script:wslIsRunning = $false
 
 # Detect installed Ubuntu distro name (may vary per system: Ubuntu-24.04, Ubuntu24.04, Ubuntu, etc.)
 function Find-UbuntuDistro {
@@ -93,13 +97,13 @@ $script:dspDistro = "Ubuntu-24.04"
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DSP WSL Manager" Height="800" Width="820"
+        Title="DSP WSL Manager" Height="750" Width="1050"
         WindowStartupLocation="CenterScreen"
-        Background="#1e1e2e" ResizeMode="CanResizeWithGrip">
+        Background="#181825" ResizeMode="CanResizeWithGrip">
     <Window.Resources>
         <Style TargetType="Button" x:Key="ActionBtn">
-            <Setter Property="Background" Value="#89b4fa"/>
-            <Setter Property="Foreground" Value="#1e1e2e"/>
+            <Setter Property="Background" Value="#394264"/>
+            <Setter Property="Foreground" Value="#b4c6ef"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Padding" Value="16,8"/>
@@ -114,11 +118,11 @@ $script:dspDistro = "Ubuntu-24.04"
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#b4d0fb"/>
+                                <Setter Property="Background" Value="#475480"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Background" Value="#45475a"/>
-                                <Setter Property="Foreground" Value="#6c7086"/>
+                                <Setter Property="Background" Value="#313244"/>
+                                <Setter Property="Foreground" Value="#585b70"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -126,7 +130,8 @@ $script:dspDistro = "Ubuntu-24.04"
             </Setter>
         </Style>
         <Style TargetType="Button" x:Key="DangerBtn" BasedOn="{StaticResource ActionBtn}">
-            <Setter Property="Background" Value="#f38ba8"/>
+            <Setter Property="Background" Value="#4a2535"/>
+            <Setter Property="Foreground" Value="#e08a9e"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -136,11 +141,11 @@ $script:dspDistro = "Ubuntu-24.04"
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#f5a3b8"/>
+                                <Setter Property="Background" Value="#5c2f42"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Background" Value="#45475a"/>
-                                <Setter Property="Foreground" Value="#6c7086"/>
+                                <Setter Property="Background" Value="#313244"/>
+                                <Setter Property="Foreground" Value="#585b70"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -148,7 +153,8 @@ $script:dspDistro = "Ubuntu-24.04"
             </Setter>
         </Style>
         <Style TargetType="Button" x:Key="GreenBtn" BasedOn="{StaticResource ActionBtn}">
-            <Setter Property="Background" Value="#a6e3a1"/>
+            <Setter Property="Background" Value="#2d4a35"/>
+            <Setter Property="Foreground" Value="#a6d9a0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -158,11 +164,11 @@ $script:dspDistro = "Ubuntu-24.04"
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#b8edb3"/>
+                                <Setter Property="Background" Value="#3a5c43"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Background" Value="#45475a"/>
-                                <Setter Property="Foreground" Value="#6c7086"/>
+                                <Setter Property="Background" Value="#313244"/>
+                                <Setter Property="Foreground" Value="#585b70"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -181,190 +187,447 @@ $script:dspDistro = "Ubuntu-24.04"
             <Setter Property="Padding" Value="12,4"/>
             <Setter Property="FontSize" Value="12"/>
         </Style>
+        <!-- Big action button styles -->
+        <Style TargetType="Button" x:Key="BigGreenBtn" BasedOn="{StaticResource GreenBtn}">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="Padding" Value="24,14"/>
+        </Style>
+        <Style TargetType="Button" x:Key="BigActionBtn" BasedOn="{StaticResource ActionBtn}">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="Padding" Value="24,14"/>
+        </Style>
     </Window.Resources>
 
-    <DockPanel LastChildFill="True">
-        <TextBlock DockPanel.Dock="Bottom" Text="&#x26A1; Crafted by Danny van der Zande"
-                   Foreground="#585b70" FontSize="13" FontStyle="Italic"
-                   HorizontalAlignment="Right" Margin="0,4,24,6"/>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="280"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-        <Grid Margin="20,20,20,0">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
-        <StackPanel Grid.Row="0" Margin="0,0,0,16">
-            <TextBlock Text="&#x1F427; DSP WSL Manager" FontSize="24" FontWeight="Bold"
-                       Foreground="#cdd6f4" Margin="0,0,0,4"/>
-            <TextBlock Text="DT-RAS Digital Signal Processing &#x2022; Elektrotechniek &#x2022; Avans Breda"
-                       FontSize="13" Foreground="#6c7086"/>
-        </StackPanel>
-
-        <Border Grid.Row="1" Name="pnlWslMissing" Background="#f38ba8" CornerRadius="8"
-                Padding="16,12" Margin="0,0,0,8" Visibility="Collapsed">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Name="txtWslError" Text="&#x26A0; WSL is niet beschikbaar."
-                           Foreground="#1e1e2e" FontSize="14" FontWeight="SemiBold"
-                           VerticalAlignment="Center" Margin="0,0,16,0" TextWrapping="Wrap" MaxWidth="550"/>
-                <Button Content="WSL Installeren" Style="{StaticResource ActionBtn}"
-                        Name="btnInstallWSL" Padding="20,8" FontSize="14"/>
-            </StackPanel>
+        <!-- ========== LOADING OVERLAY (spans both columns) ========== -->
+        <Border Grid.ColumnSpan="2" Name="pnlLoading" Background="#1e1e2e" Visibility="Visible" Panel.ZIndex="10">
+            <Canvas HorizontalAlignment="Center" VerticalAlignment="Center" Width="500" Height="340">
+                <TextBlock Text="&#x1F427; DSP WSL Manager" FontSize="24" FontWeight="Bold" Foreground="#cdd6f4" Canvas.Left="0" Canvas.Top="0"/>
+                <TextBlock Text="DT-RAS Digital Signal Processing &#x2022; Elektrotechniek &#x2022; Avans Breda" FontSize="12" Foreground="#6c7086" Canvas.Left="0" Canvas.Top="32"/>
+                <TextBlock Text="&#x23F3; Systeem controleren..." Foreground="#cdd6f4" FontSize="16" FontWeight="SemiBold" Canvas.Left="0" Canvas.Top="72"/>
+                <TextBlock Name="chkVirtualization" Text="&#x2B1C; Virtualisatie controleren..." Foreground="#6c7086" FontSize="13" Canvas.Left="0" Canvas.Top="104"/>
+                <TextBlock Name="chkWsl" Text="&#x2B1C; WSL status controleren..." Foreground="#6c7086" FontSize="13" Canvas.Left="0" Canvas.Top="128"/>
+                <TextBlock Name="chkDistro" Text="&#x2B1C; Distro detecteren..." Foreground="#6c7086" FontSize="13" Canvas.Left="0" Canvas.Top="152"/>
+                <TextBlock Name="chkProject" Text="&#x2B1C; DSP project zoeken..." Foreground="#6c7086" FontSize="13" Canvas.Left="0" Canvas.Top="176"/>
+                <TextBlock Name="chkUsbipd" Text="&#x2B1C; USB-IPD controleren..." Foreground="#6c7086" FontSize="13" Canvas.Left="0" Canvas.Top="200"/>
+                <TextBlock Name="chkInit" Text="&#x2B1C; Interface voorbereiden..." Foreground="#6c7086" FontSize="13" Canvas.Left="0" Canvas.Top="224"/>
+                <TextBlock Name="txtLoadingHint" Text="" Foreground="#585b70" FontSize="16" FontWeight="SemiBold" Canvas.Left="80" Canvas.Top="268"/>
+                <TextBlock FontSize="16" FontStyle="Italic" FontWeight="SemiBold" Canvas.Left="80" Canvas.Top="316">
+                    <Run Text="Crafted by Danny van der Zande" Foreground="#89b4fa"/>
+                    <Run Text=" - " Foreground="#585b70"/>
+                    <Run Text="v2.0.0" Foreground="#585b70"/>
+                </TextBlock>
+            </Canvas>
         </Border>
 
-        <Grid Grid.Row="2" Name="pnlMainContent">
+        <!-- ========== SIDEBAR (left) ========== -->
+        <Border Grid.Column="0" Background="#1e1e2e" BorderBrush="#313244" BorderThickness="0,0,1,0">
+            <DockPanel Margin="16,16,16,8">
+                <!-- Footer -->
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                    <Button Name="btnCheckUpdate" Style="{StaticResource SmallActionBtn}" Content="&#x1F504; Check for updates"
+                            FontSize="9" Padding="8,4" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                    <TextBlock FontSize="11" FontStyle="Italic" HorizontalAlignment="Center">
+                        <Run Text="Crafted by Danny van der Zande" Foreground="#7f849c"/>
+                        <Run Text=" - " Foreground="#6c7086"/>
+                        <Run Text="v2.0.0" Foreground="#6c7086"/>
+                    </TextBlock>
+                </StackPanel>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <!-- App title + update knop -->
+                    <Grid Margin="0,0,0,2">
+                        <TextBlock Text="&#x1F427; DSP WSL Manager" FontSize="18" FontWeight="Bold" Foreground="#cdd6f4"/>
+                        <Button Name="btnUpdate" Style="{StaticResource SmallActionBtn}" ToolTip="Controleer op updates"
+                                HorizontalAlignment="Right" VerticalAlignment="Center" Width="22" Height="20" Padding="0" Visibility="Collapsed">
+                            <Grid>
+                                <Path Data="M12,4 C7.58,4 4,7.58 4,12 S7.58,20 12,20 S20,16.42 20,12 H18 C18,15.31 15.31,18 12,18 S6,15.31 6,12 S8.69,6 12,6 C13.66,6 15.14,6.69 16.22,7.78 L13,11 H20 V4 L17.65,6.35 C16.2,4.9 14.21,4 12,4 Z"
+                                      Fill="#a6e3a1" Stretch="Uniform" Width="13" Height="13"/>
+                                <Ellipse Name="dotUpdate" Width="7" Height="7" Fill="#f38ba8"
+                                         HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-2,0" Visibility="Collapsed"/>
+                            </Grid>
+                        </Button>
+                    </Grid>
+                    <TextBlock Text="DT-RAS Elektrotechniek &#x2022; Avans Breda" FontSize="9" Foreground="#6c7086" Margin="0,0,0,2"/>
+                    <TextBlock Text="Manager tool for setting up and using dev environment for DSP study assignment" FontSize="8" Foreground="#585b70" TextWrapping="Wrap" Margin="0,0,0,16"/>
+
+                    <!-- WSL OMGEVING header + knoppen -->
+                    <Grid Margin="0,0,0,8">
+                        <TextBlock Text="WSL OMGEVING" Foreground="#89b4fa" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Name="btnInstall" Style="{StaticResource SmallActionBtn}" ToolTip="Nieuwe distro"
+                                    Width="24" Height="20" Padding="0" Margin="0,0,4,0">
+                                <TextBlock Text="+" Foreground="#b4c6ef" FontSize="14" FontWeight="Bold" Margin="0,-2,0,0"/>
+                            </Button>
+                            <Button Name="btnRefresh" Style="{StaticResource SmallActionBtn}" ToolTip="Vernieuwen"
+                                    Width="24" Height="20" Padding="0">
+                                <Path Data="M17.65,6.35 C16.2,4.9 14.21,4 12,4 C7.58,4 4.01,7.58 4.01,12 S7.58,20 12,20 C15.73,20 18.84,17.45 19.73,14 L17.65,14 C16.83,16.33 14.61,18 12,18 C8.69,18 6,15.31 6,12 S8.69,6 12,6 C13.66,6 15.14,6.69 16.22,7.78 L13,11 L20,11 V4 L17.65,6.35 Z"
+                                      Fill="#b4c6ef" Stretch="Uniform" Width="12" Height="12"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Distro lijst: klikbare kaarten -->
+                    <ListBox Name="dgDistros" Background="Transparent" BorderThickness="0" SelectionMode="Single"
+                             MaxHeight="180" MinHeight="40"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Grid Margin="0,0,0,4">
+                                                <Border Name="cardBg" Background="Transparent" CornerRadius="6" Padding="10,8">
+                                                    <ContentPresenter/>
+                                                </Border>
+                                                <!-- Selection indicator bar -->
+                                                <Border Name="selBar" Width="4" CornerRadius="2" HorizontalAlignment="Right"
+                                                        VerticalAlignment="Center" Height="20" Background="Transparent" Margin="0,0,-2,0"/>
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="cardBg" Property="Background" Value="#313244"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="cardBg" Property="Background" Value="#45475a"/>
+                                                    <Setter TargetName="cardBg" Property="Opacity" Value="0.6"/>
+                                                    <Setter TargetName="selBar" Property="Background" Value="#89b4fa"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Setter Property="Cursor" Value="Hand"/>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <!-- Status dot -->
+                                    <Ellipse Name="statusDot" Width="8" Height="8" Fill="#6c7086" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}" Foreground="#cdd6f4" FontSize="11" FontWeight="SemiBold"/>
+                                        <TextBlock Foreground="#9399b2" FontSize="8">
+                                            <TextBlock.Text>
+                                                <MultiBinding StringFormat="{}{0} &#x2022; WSL {1}{2}">
+                                                    <Binding Path="State"/>
+                                                    <Binding Path="Version"/>
+                                                    <Binding Path="Default"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </StackPanel>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding State}" Value="Running">
+                                        <Setter TargetName="statusDot" Property="Fill" Value="#a6e3a1"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <!-- PROJECT header -->
+                    <TextBlock Text="PROJECT" Foreground="#89b4fa" FontSize="10" FontWeight="Bold" Margin="0,0,0,8"/>
+
+                    <Border Background="#313244" CornerRadius="6" Padding="12,8" Margin="0,0,0,6">
+                        <Grid>
+                            <StackPanel>
+                                <TextBlock Name="txtProjectName" Text="Geen project" Foreground="#cdd6f4" FontSize="12" FontWeight="SemiBold" Margin="0,0,20,0"/>
+                                <TextBlock Name="txtProjectAuthor" Visibility="Collapsed" FontSize="9" Margin="0,4,0,2">
+                                    <Hyperlink Name="linkProjectAuthor" NavigateUri="https://github.com/dkroeske/avd-dsp-project" Foreground="#6c7086">
+                                        <Run Text="Git project by Diederich Kroeske"/>
+                                    </Hyperlink>
+                                </TextBlock>
+                                <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
+                                    <Button Name="btnOpenFolder" Style="{StaticResource SmallActionBtn}" ToolTip="Map openen" Width="18" Height="16" Padding="0" Margin="0,0,5,0" VerticalAlignment="Center" Visibility="Collapsed">
+                                        <Path Data="M10,4 H4 C2.9,4 2,4.9 2,6 V18 C2,19.1 2.9,20 4,20 H20 C21.1,20 22,19.1 22,18 V8 C22,6.9 21.1,6 20,6 H12 L10,4 Z"
+                                              Fill="#b4c6ef" Stretch="Uniform" Width="11" Height="10"/>
+                                    </Button>
+                                    <TextBlock Name="txtProjectPath" Text="Klik 'Koppelen' om te starten" Foreground="#6c7086" FontSize="9" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" MaxWidth="160"/>
+                                </StackPanel>
+                                <TextBlock Name="txtProjectStatus" Text="Niet geconfigureerd" Foreground="#f38ba8" FontSize="9" FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <!-- X knop rechtsboven: ontkoppelen -->
+                            <Button Name="btnUnlinkProject" Style="{StaticResource SmallDangerBtn}" ToolTip="Ontkoppelen" Width="20" Height="18" Padding="0"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-4,0" Visibility="Collapsed">
+                                <Path Data="M19,6.41 L17.59,5 L12,10.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L12,13.41 L17.59,19 L19,17.59 L13.41,12 Z"
+                                      Fill="#e08a9e" Stretch="Uniform" Width="8" Height="8"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+                    <!-- Koppelen knop: alleen zichtbaar als er geen project is -->
+                    <Button Content="&#x1F4E5; Koppelen" Style="{StaticResource SmallActionBtn}" Name="btnCloneRepo" Padding="8,5" FontSize="10" Margin="0,0,0,8" HorizontalAlignment="Left"/>
+
+                    <!-- RASPBERRY PI PICO -->
+                    <TextBlock Text="RASPBERRY PI PICO" Foreground="#89b4fa" FontSize="10" FontWeight="Bold" Margin="0,0,0,8"/>
+
+                    <ListBox Name="dgPicos" Background="Transparent" BorderThickness="0" SelectionMode="Single"
+                             MaxHeight="120" MinHeight="30" Margin="0,0,0,6"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Grid>
+                                                <Border Name="picoBg" Background="Transparent" CornerRadius="6" Padding="10,6" Margin="0,1"/>
+                                                <ContentPresenter Margin="10,6"/>
+                                                <Border Name="picoBar" Width="4" CornerRadius="2" HorizontalAlignment="Right"
+                                                        VerticalAlignment="Center" Height="20" Background="Transparent" Margin="0,0,-2,0"/>
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="picoBg" Property="Background" Value="#313244"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="picoBg" Property="Background" Value="#45475a"/>
+                                                    <Setter TargetName="picoBg" Property="Opacity" Value="0.6"/>
+                                                    <Setter TargetName="picoBar" Property="Background" Value="#89b4fa"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Setter Property="Cursor" Value="Hand"/>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Name="picoDot" Width="8" Height="8" Fill="#6c7086" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Desc}" Foreground="#cdd6f4" FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="160"/>
+                                        <TextBlock Foreground="#9399b2" FontSize="8">
+                                            <TextBlock.Text>
+                                                <MultiBinding StringFormat="{}{0} &#x2022; {1}">
+                                                    <Binding Path="Id"/>
+                                                    <Binding Path="Status"/>
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </StackPanel>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Status}" Value="Gekoppeld aan WSL">
+                                        <Setter TargetName="picoDot" Property="Fill" Value="#a6e3a1"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <Button Content="&#x1F50C; Pico Koppelen" Style="{StaticResource SmallActionBtn}" Name="btnPico" HorizontalAlignment="Stretch" Padding="8,5" FontSize="11"/>
+
+                </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- ========== MAIN AREA (right) ========== -->
+        <Grid Grid.Column="1" Margin="16,16,16,8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- DSP Project Paneel -->
-            <Border Grid.Row="0" Background="#313244" CornerRadius="8" Padding="16,12" Margin="0,0,0,16">
-                <StackPanel>
-                    <TextBlock Text="&#x1F4C2; DSP Project Acties" Foreground="#cdd6f4" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,12"/>
-                    <WrapPanel Orientation="Horizontal">
-                        <Button Content="&#x1F4E5; DSP Project Ophalen" Style="{StaticResource ActionBtn}" Name="btnCloneRepo" Margin="0,0,8,0"/>
-                        <Button Content="&#x1F4BB; Open Terminal" Style="{StaticResource ActionBtn}" Name="btnTerminal" Margin="0,0,8,0"/>
-                        <Button Content="&#x1F528; Project Builden" Style="{StaticResource GreenBtn}" Name="btnBuild" Margin="0,0,8,0"/>
-                        <Button Content="&#x26A1; Flashen" Style="{StaticResource GreenBtn}" Name="btnFlash"/>
-                    </WrapPanel>
+            <!-- WSL Missing banner -->
+            <Border Grid.Row="0" Name="pnlWslMissing" Background="#f38ba8" CornerRadius="8"
+                    Padding="16,12" Margin="0,0,0,12" Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Name="txtWslError" Text="&#x26A0; WSL is niet beschikbaar."
+                               Foreground="#1e1e2e" FontSize="14" FontWeight="SemiBold"
+                               VerticalAlignment="Center" Margin="0,0,16,0" TextWrapping="Wrap" MaxWidth="500"/>
+                    <Button Content="WSL Installeren" Style="{StaticResource ActionBtn}"
+                            Name="btnInstallWSL" Padding="20,8" FontSize="14"/>
                 </StackPanel>
             </Border>
 
-            <!-- WSL Distributies Paneel -->
-            <Grid Grid.Row="1" Margin="0,0,0,16">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                
-                <Grid Grid.Row="0" Margin="0,0,0,8">
-                    <TextBlock Text="&#x1F427; WSL Distributies" Foreground="#cdd6f4" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="&#x2795; Nieuw" Style="{StaticResource SmallGreenBtn}" Name="btnInstall" Margin="0,0,8,0"/>
-                        <Button Content="&#x25B6; Start" Style="{StaticResource SmallActionBtn}" Name="btnStart" Margin="0,0,8,0"/>
-                        <Button Content="&#x23F9; Stop" Style="{StaticResource SmallActionBtn}" Name="btnStop" Margin="0,0,8,0"/>
-                        <Button Content="&#x1F5D1; Wis" Style="{StaticResource SmallDangerBtn}" Name="btnRemove" Margin="0,0,8,0"/>
-                        <Button Content="&#x1F504;" Style="{StaticResource SmallActionBtn}" ToolTip="Vernieuwen" Name="btnRefresh"/>
-                    </StackPanel>
+            <!-- Main content wrapper (hidden during loading) -->
+            <Border Grid.Row="1" Grid.RowSpan="6" Name="pnlMainContent" Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="150"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Selected distro title -->
+                    <TextBlock Grid.Row="0" Name="txtSelectedDistro" Text=""
+                               Foreground="#cdd6f4" FontSize="18" FontWeight="Bold" Margin="0,0,0,8"/>
+
+                    <!-- 3-column status panel -->
+                    <Border Grid.Row="1" Background="#1e1e2e" CornerRadius="10" BorderBrush="#313244" BorderThickness="1" Padding="16,10" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Kolom 1: WSL status -->
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="WSL" Foreground="#89b4fa" FontSize="9" FontWeight="Bold" Margin="0,0,0,4"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                                    <Ellipse Width="8" Height="8" Name="dotWslStatus" Fill="#a6e3a1" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Name="txtWslRunState" Text="Running" Foreground="#a6e3a1" FontSize="11" FontWeight="SemiBold"/>
+                                </StackPanel>
+                                <TextBlock Name="txtWslUptime" Text="" Foreground="#6c7086" FontSize="9"/>
+                                <TextBlock Name="txtWslVersion" Text="WSL 2" Foreground="#6c7086" FontSize="9"/>
+                            </StackPanel>
+
+                            <!-- WSL action buttons (kleine knoppen verticaal) -->
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,12,0">
+                                <Button Name="btnStartMain" Style="{StaticResource SmallGreenBtn}" ToolTip="Start" Width="24" Height="22" Padding="0" Margin="0,0,0,3">
+                                    <Path Data="M8,5 V19 L19,12 Z" Fill="#a6d9a0" Stretch="Uniform" Width="10" Height="10"/>
+                                </Button>
+                                <Button Name="btnStopMain" Style="{StaticResource SmallActionBtn}" ToolTip="Stop" Width="24" Height="22" Padding="0" Margin="0,0,0,3">
+                                    <Path Data="M6,6 H18 V18 H6 Z" Fill="#b4c6ef" Stretch="Uniform" Width="9" Height="9"/>
+                                </Button>
+                                <Button Name="btnRemoveMain" Style="{StaticResource SmallDangerBtn}" ToolTip="Wis" Width="24" Height="22" Padding="0">
+                                    <Path Data="M19,6.41 L17.59,5 L12,10.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L12,13.41 L17.59,19 L19,17.59 L13.41,12 Z"
+                                          Fill="#e08a9e" Stretch="Uniform" Width="9" Height="9"/>
+                                </Button>
+                            </StackPanel>
+
+                            <!-- Separator 1 -->
+                            <Border Grid.Column="2" Width="1" Background="#45475a" Opacity="0.4" Margin="0,2"/>
+
+                            <!-- Kolom 2: Details -->
+                            <StackPanel Grid.Column="3" Margin="16,0,0,0">
+                                <TextBlock Text="DETAILS" Foreground="#89b4fa" FontSize="9" FontWeight="Bold" Margin="0,0,0,4"/>
+                                <TextBlock Name="txtDetailMem" Text="Memory: --" Foreground="#cdd6f4" FontSize="10" Margin="0,0,0,2"/>
+                                <TextBlock Name="txtDetailDisk" Text="Disk: --" Foreground="#cdd6f4" FontSize="10" Margin="0,0,0,2"/>
+                                <TextBlock Name="txtDetailHome" Text="" Foreground="#6c7086" FontSize="9"/>
+                            </StackPanel>
+
+                            <!-- Separator 2 -->
+                            <Border Grid.Column="4" Width="1" Background="#45475a" Opacity="0.4" Margin="16,2,0,2"/>
+
+                            <!-- Kolom 3: Pico status -->
+                            <StackPanel Grid.Column="5" Margin="16,0,0,0">
+                                <TextBlock Text="PICO" Foreground="#89b4fa" FontSize="9" FontWeight="Bold" Margin="0,0,0,4"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                                    <Ellipse Width="8" Height="8" Name="dotPicoStatusMain" Fill="#6c7086" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Name="txtPicoStatusMain" Text="Geen Pico" Foreground="#6c7086" FontSize="10" FontWeight="SemiBold"/>
+                                </StackPanel>
+                                <TextBlock Name="txtPicoDescMain" Text="" Foreground="#cdd6f4" FontSize="9" Margin="0,0,0,1"/>
+                                <TextBlock Name="txtPicoIdMain" Text="" Foreground="#6c7086" FontSize="9" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Big action buttons + smaller buttons -->
+                    <Grid Grid.Row="2" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="&#x1F528; Build Project" Style="{StaticResource BigGreenBtn}" Name="btnBuild"/>
+                        <Button Grid.Column="2" Content="&#x26A1; Pico Flashen" Style="{StaticResource BigActionBtn}" Name="btnFlash"/>
+                        <StackPanel Grid.Column="4" VerticalAlignment="Stretch" Width="88">
+                            <Button Content="&#x1F4BB; Terminal" Style="{StaticResource SmallActionBtn}" Name="btnTerminal" HorizontalAlignment="Stretch" Padding="8,6" FontSize="10"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Status bar -->
+                    <Border Grid.Row="3" Background="#1e1e2e" CornerRadius="6" Padding="12,6" Margin="0,0,0,8">
+                        <Grid>
+                            <TextBlock Name="txtStatus" Text="Gereed." Foreground="#a6adc8" FontSize="11"/>
+                            <TextBlock Name="txtStatusTime" Text="" Foreground="#585b70" FontSize="9" HorizontalAlignment="Right"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Status Log (compact) -->
+                    <Border Grid.Row="4" Background="#11111b" CornerRadius="8" BorderBrush="#313244" BorderThickness="1" Margin="0,0,0,6">
+                        <Grid>
+                            <DockPanel>
+                                <Border DockPanel.Dock="Top" Background="#313244" CornerRadius="8,8,0,0" Padding="10,4">
+                                    <TextBlock Text="STATUS LOG" Foreground="#585b70" FontSize="9" FontWeight="Bold"/>
+                                </Border>
+                                <ScrollViewer Name="svLog" VerticalScrollBarVisibility="Hidden" Padding="4">
+                                    <TextBlock Name="txtLog" Text="" Foreground="#6c7086" FontSize="10"
+                                               FontFamily="Consolas" TextWrapping="Wrap" Margin="4,2"/>
+                                </ScrollViewer>
+                            </DockPanel>
+                            <Button Name="btnScrollLog" Visibility="Collapsed"
+                                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                    Margin="0,0,8,8" Width="24" Height="24"
+                                    Background="#394264" BorderBrush="#585b70" BorderThickness="1"
+                                    Cursor="Hand" ToolTip="Scroll naar beneden">
+                                <Path Data="M7,10 L12,15 L17,10" Stroke="#b4c6ef" StrokeThickness="2" Fill="Transparent" Stretch="Uniform" Width="10" Height="8"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <!-- Console Output (groot) -->
+                    <Border Grid.Row="5" Background="#11111b" CornerRadius="8" BorderBrush="#313244" BorderThickness="1">
+                        <Grid>
+                            <DockPanel>
+                                <Border DockPanel.Dock="Top" Background="#313244" CornerRadius="8,8,0,0" Padding="10,4">
+                                    <TextBlock Text="CONSOLE" Foreground="#585b70" FontSize="9" FontWeight="Bold"/>
+                                </Border>
+                                <ScrollViewer Name="svConsole" VerticalScrollBarVisibility="Hidden" Padding="4">
+                                    <TextBlock Name="txtConsole" Text="" Foreground="#585b70" FontSize="9"
+                                               FontFamily="Consolas" TextWrapping="Wrap" Margin="4,2"/>
+                                </ScrollViewer>
+                            </DockPanel>
+                            <Button Name="btnScrollConsole" Visibility="Collapsed"
+                                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                    Margin="0,0,8,8" Width="24" Height="24"
+                                    Background="#394264" BorderBrush="#585b70" BorderThickness="1"
+                                    Cursor="Hand" ToolTip="Scroll naar beneden">
+                                <Path Data="M7,10 L12,15 L17,10" Stroke="#b4c6ef" StrokeThickness="2" Fill="Transparent" Stretch="Uniform" Width="10" Height="8"/>
+                            </Button>
+                        </Grid>
+                    </Border>
                 </Grid>
-
-                <Border Grid.Row="1" Background="#313244" CornerRadius="8" Padding="2">
-                    <DataGrid Name="dgDistros" AutoGenerateColumns="False" Background="Transparent" BorderThickness="0"
-                              RowBackground="#313244" AlternatingRowBackground="#363849" Foreground="#cdd6f4" FontSize="13"
-                              GridLinesVisibility="None" HeadersVisibility="Column" SelectionMode="Single"
-                              CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True">
-                        <DataGrid.ColumnHeaderStyle>
-                            <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background" Value="#45475a"/>
-                                <Setter Property="Foreground" Value="#89b4fa"/>
-                                <Setter Property="FontWeight" Value="SemiBold"/>
-                                <Setter Property="Padding" Value="12,8"/>
-                                <Setter Property="BorderThickness" Value="0"/>
-                            </Style>
-                        </DataGrid.ColumnHeaderStyle>
-                        <DataGrid.CellStyle>
-                            <Style TargetType="DataGridCell">
-                                <Setter Property="Padding" Value="12,6"/>
-                                <Setter Property="BorderThickness" Value="0"/>
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="DataGridCell">
-                                            <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}">
-                                                <ContentPresenter VerticalAlignment="Center"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <Trigger Property="IsSelected" Value="True">
-                                        <Setter Property="Background" Value="#45475a"/>
-                                        <Setter Property="Foreground" Value="#cdd6f4"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </DataGrid.CellStyle>
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Naam" Binding="{Binding Name}" Width="*"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding State}" Width="100"/>
-                            <DataGridTextColumn Header="WSL Versie" Binding="{Binding Version}" Width="90"/>
-                            <DataGridTextColumn Header="Default" Binding="{Binding Default}" Width="70"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </Border>
-            </Grid>
-
-            <!-- Raspberry Pi Pico Paneel -->
-            <Grid Grid.Row="2" Margin="0,0,0,8">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                
-                <Grid Grid.Row="0" Margin="0,0,0,8">
-                    <TextBlock Text="&#x1F50C; Raspberry Pi Pico" Foreground="#cdd6f4" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="&#x1F50C; Koppelen" Style="{StaticResource SmallActionBtn}" Name="btnPico"/>
-                    </StackPanel>
-                </Grid>
-
-                <Border Grid.Row="1" Background="#313244" CornerRadius="8" Padding="2">
-                    <DataGrid Name="dgPicos" AutoGenerateColumns="False" Background="Transparent" BorderThickness="0"
-                              RowBackground="#313244" AlternatingRowBackground="#363849" Foreground="#cdd6f4" FontSize="13"
-                              GridLinesVisibility="None" HeadersVisibility="Column" SelectionMode="Single"
-                              CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True">
-                        <DataGrid.ColumnHeaderStyle>
-                            <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background" Value="#45475a"/>
-                                <Setter Property="Foreground" Value="#89b4fa"/>
-                                <Setter Property="FontWeight" Value="SemiBold"/>
-                                <Setter Property="Padding" Value="12,8"/>
-                                <Setter Property="BorderThickness" Value="0"/>
-                            </Style>
-                        </DataGrid.ColumnHeaderStyle>
-                        <DataGrid.CellStyle>
-                            <Style TargetType="DataGridCell">
-                                <Setter Property="Padding" Value="12,6"/>
-                                <Setter Property="BorderThickness" Value="0"/>
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="DataGridCell">
-                                            <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}">
-                                                <ContentPresenter VerticalAlignment="Center"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </DataGrid.CellStyle>
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Pico ID" Binding="{Binding Id}" Width="150"/>
-                            <DataGridTextColumn Header="Omschrijving" Binding="{Binding Desc}" Width="*"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="150"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </Border>
-            </Grid>
+            </Border>
         </Grid>
-
-        <Border Grid.Row="3" Background="#313244" CornerRadius="6" Padding="12,8" Margin="0,4,0,0">
-            <TextBlock Name="txtStatus" Text="Gereed." Foreground="#a6adc8" FontSize="12"/>
+        <!-- ========== CUSTOM DIALOG OVERLAY ========== -->
+        <Border Name="dialogOverlay" Grid.ColumnSpan="2" Background="#CC11111b" Visibility="Collapsed"
+                HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+            <Border Name="dialogCard" Background="#1e1e2e" CornerRadius="12" Padding="28,24"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    MinWidth="380" MaxWidth="520"
+                    BorderBrush="#45475a" BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect Color="#11111b" BlurRadius="30" ShadowDepth="4" Opacity="0.6"/>
+                </Border.Effect>
+                <StackPanel>
+                    <!-- Icon + Title -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Name="dialogIcon" FontSize="22" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBlock Name="dialogTitle" FontSize="16" FontWeight="Bold" Foreground="#cdd6f4" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <!-- Message -->
+                    <TextBlock Name="dialogMessage" Foreground="#bac2de" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,20" LineHeight="20"/>
+                    <!-- Buttons -->
+                    <StackPanel Name="dialogButtons" Orientation="Horizontal" HorizontalAlignment="Right"/>
+                </StackPanel>
+            </Border>
         </Border>
-
-        <Border Grid.Row="4" Background="#181825" CornerRadius="6" Padding="8" Margin="0,8,0,0"
-                MaxHeight="100">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <TextBlock Name="txtLog" Text="" Foreground="#6c7086" FontSize="11"
-                           FontFamily="Consolas" TextWrapping="Wrap"/>
-            </ScrollViewer>
-        </Border>
-
     </Grid>
-    </DockPanel>
 </Window>
 "@
 
@@ -375,13 +638,10 @@ $window = [Windows.Markup.XamlReader]::Load($reader)
 # Get controls
 $dgDistros = $window.FindName("dgDistros")
 $dgPicos = $window.FindName("dgPicos")
-$btnRefresh = $window.FindName("btnRefresh")
 $btnInstall = $window.FindName("btnInstall")
-$btnRemove = $window.FindName("btnRemove")
-$btnStart = $window.FindName("btnStart")
-$btnStop = $window.FindName("btnStop")
 $btnPico = $window.FindName("btnPico")
 $btnCloneRepo = $window.FindName("btnCloneRepo")
+$btnUnlinkProject = $window.FindName("btnUnlinkProject")
 $btnTerminal = $window.FindName("btnTerminal")
 $btnBuild = $window.FindName("btnBuild")
 $btnFlash = $window.FindName("btnFlash")
@@ -389,9 +649,220 @@ $btnInstallWSL = $window.FindName("btnInstallWSL")
 $pnlWslMissing = $window.FindName("pnlWslMissing")
 $txtWslError = $window.FindName("txtWslError")
 $pnlMainContent = $window.FindName("pnlMainContent")
+$pnlLoading = $window.FindName("pnlLoading")
+$chkVirtualization = $window.FindName("chkVirtualization")
+$chkWsl = $window.FindName("chkWsl")
+$chkDistro = $window.FindName("chkDistro")
+$chkProject = $window.FindName("chkProject")
+$chkUsbipd = $window.FindName("chkUsbipd")
+$chkInit = $window.FindName("chkInit")
+$txtLoadingHint = $window.FindName("txtLoadingHint")
 $picoIcon = [char]::ConvertFromUtf32(0x1F50C)
 $txtStatus = $window.FindName("txtStatus")
+$txtStatusTime = $window.FindName("txtStatusTime")
 $txtLog = $window.FindName("txtLog")
+$txtConsole = $window.FindName("txtConsole")
+$svLog = $window.FindName("svLog")
+$svConsole = $window.FindName("svConsole")
+$btnScrollLog = $window.FindName("btnScrollLog")
+$btnScrollConsole = $window.FindName("btnScrollConsole")
+# Sidebar controls
+$txtProjectName = $window.FindName("txtProjectName")
+$txtProjectPath = $window.FindName("txtProjectPath")
+$txtProjectStatus = $window.FindName("txtProjectStatus")
+# Main status panel controls
+$txtSelectedDistro = $window.FindName("txtSelectedDistro")
+$dotWslStatus = $window.FindName("dotWslStatus")
+$txtWslRunState = $window.FindName("txtWslRunState")
+$txtWslUptime = $window.FindName("txtWslUptime")
+$txtWslVersion = $window.FindName("txtWslVersion")
+$txtDetailMem = $window.FindName("txtDetailMem")
+$txtDetailDisk = $window.FindName("txtDetailDisk")
+$txtDetailHome = $window.FindName("txtDetailHome")
+$dotPicoStatusMain = $window.FindName("dotPicoStatusMain")
+$txtPicoStatusMain = $window.FindName("txtPicoStatusMain")
+$txtPicoDescMain = $window.FindName("txtPicoDescMain")
+$txtPicoIdMain = $window.FindName("txtPicoIdMain")
+$btnOpenFolder = $window.FindName("btnOpenFolder")
+$txtProjectAuthor = $window.FindName("txtProjectAuthor")
+$linkProjectAuthor = $window.FindName("linkProjectAuthor")
+$linkProjectAuthor.Add_RequestNavigate({
+    param($s, $e)
+    Start-Process $e.Uri.AbsoluteUri
+    $e.Handled = $true
+})
+$btnUpdate = $window.FindName("btnUpdate")
+$dotUpdate = $window.FindName("dotUpdate")
+# Dialog overlay controls
+$dialogOverlay = $window.FindName("dialogOverlay")
+$dialogCard = $window.FindName("dialogCard")
+$dialogIcon = $window.FindName("dialogIcon")
+$dialogTitle = $window.FindName("dialogTitle")
+$dialogMessage = $window.FindName("dialogMessage")
+$dialogButtons = $window.FindName("dialogButtons")
+$btnStartMain = $window.FindName("btnStartMain")
+$btnStopMain = $window.FindName("btnStopMain")
+$btnRemoveMain = $window.FindName("btnRemoveMain")
+# Aliases for compatibility
+$btnStart = $btnStartMain
+$btnStop = $btnStopMain
+$btnRemove = $btnRemoveMain
+$btnRefresh = $window.FindName("btnRefresh")
+
+# ========== CUSTOM DIALOG SYSTEM ==========
+# Vervangt alle standaard MessageBox-aanroepen met een gestylede overlay
+
+function Show-CustomDialog {
+    param(
+        [string]$Message,
+        [string]$Title = "Melding",
+        [ValidateSet("OK","YesNo","YesNoCancel")]
+        [string]$Buttons = "OK",
+        [ValidateSet("Info","Warning","Question","Error","Success")]
+        [string]$Type = "Info"
+    )
+
+    # Icon en kleur per type
+    $iconMap = @{
+        "Info"     = @{ Icon = [char]0x2139;  Color = "#89b4fa" }
+        "Warning"  = @{ Icon = [char]0x26A0;  Color = "#f9e2af" }
+        "Question" = @{ Icon = "?";           Color = "#cba6f7" }
+        "Error"    = @{ Icon = [char]0x274C;  Color = "#f38ba8" }
+        "Success"  = @{ Icon = [char]0x2705;  Color = "#a6e3a1" }
+    }
+    $iconInfo = $iconMap[$Type]
+    $dialogIcon.Text = $iconInfo.Icon
+    $dialogIcon.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom($iconInfo.Color)
+    $dialogTitle.Text = $Title
+    $dialogTitle.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom($iconInfo.Color)
+
+    # Bericht met newline-support
+    $dialogMessage.Text = $Message -replace '`n', "`n"
+
+    # Knoppen opbouwen
+    $dialogButtons.Children.Clear()
+    $script:dialogResult = $null
+
+    # Knop-stijl helper
+    $makeBtn = {
+        param($Text, $Result, $BgColor, $FgColor, $IsPrimary)
+        $btn = New-Object System.Windows.Controls.Button
+        $btn.Content = $Text
+        $btn.MinWidth = 90
+        $btn.Padding = "16,8"
+        $btn.Margin = "6,0,0,0"
+        $btn.FontSize = 12
+        $btn.FontWeight = if ($IsPrimary) { "SemiBold" } else { "Normal" }
+        $btn.Cursor = [System.Windows.Input.Cursors]::Hand
+        $btn.BorderThickness = [System.Windows.Thickness]::new(0)
+
+        # Custom template met rounded corners
+        $template = [System.Windows.Markup.XamlReader]::Parse(@"
+<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
+    <Border Name="bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Border>
+    <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+            <Setter TargetName="bd" Property="Opacity" Value="0.85"/>
+        </Trigger>
+    </ControlTemplate.Triggers>
+</ControlTemplate>
+"@)
+        $btn.Template = $template
+        $btn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom($BgColor)
+        $btn.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom($FgColor)
+
+        $btn.Tag = $Result
+        $btn.Add_Click({
+            $script:dialogResult = $this.Tag
+            # Fade-out
+            $fadeOut = New-Object System.Windows.Media.Animation.DoubleAnimation
+            $fadeOut.From = 1.0
+            $fadeOut.To = 0.0
+            $fadeOut.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(150))
+            $fadeOut.Add_Completed({ $dialogOverlay.Visibility = "Collapsed"; $dialogOverlay.Opacity = 1.0 })
+            $dialogOverlay.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $fadeOut)
+        })
+        return $btn
+    }
+
+    switch ($Buttons) {
+        "OK" {
+            $dialogButtons.Children.Add((& $makeBtn "OK" "OK" "#89b4fa" "#1e1e2e" $true)) | Out-Null
+        }
+        "YesNo" {
+            $dialogButtons.Children.Add((& $makeBtn "Nee" "No" "#45475a" "#cdd6f4" $false)) | Out-Null
+            $dialogButtons.Children.Add((& $makeBtn "Ja" "Yes" "#89b4fa" "#1e1e2e" $true)) | Out-Null
+        }
+        "YesNoCancel" {
+            $dialogButtons.Children.Add((& $makeBtn "Annuleren" "Cancel" "#45475a" "#cdd6f4" $false)) | Out-Null
+            $dialogButtons.Children.Add((& $makeBtn "Nee" "No" "#585b70" "#cdd6f4" $false)) | Out-Null
+            $dialogButtons.Children.Add((& $makeBtn "Ja" "Yes" "#89b4fa" "#1e1e2e" $true)) | Out-Null
+        }
+    }
+
+    # Fade-in
+    $dialogOverlay.Opacity = 0
+    $dialogOverlay.Visibility = "Visible"
+    $fadeIn = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $fadeIn.From = 0.0
+    $fadeIn.To = 1.0
+    $fadeIn.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(200))
+    $dialogOverlay.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $fadeIn)
+
+    # Blokkeer tot gebruiker klikt (WPF dispatcher loop)
+    $frame = New-Object System.Windows.Threading.DispatcherFrame
+    $checkTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $checkTimer.Interval = [TimeSpan]::FromMilliseconds(50)
+    $checkTimer.Add_Tick({
+        if ($null -ne $script:dialogResult) {
+            $checkTimer.Stop()
+            $frame.Continue = $false
+        }
+    })
+    $checkTimer.Start()
+    [System.Windows.Threading.Dispatcher]::PushFrame($frame)
+
+    return $script:dialogResult
+}
+
+# Update distro buttons when selection changes
+$dgDistros.Add_SelectionChanged({ Update-DistroButtons; Update-StatusPanel })
+
+# Refresh button: refresh distro list
+$btnRefresh.Add_Click({ Refresh-Distros; Update-StatusPanel })
+
+# Open project folder in Windows Explorer
+$btnOpenFolder.Add_Click({
+    $projectPath = Get-ProjectPath
+    if ($projectPath -and (Test-Path $projectPath)) {
+        Start-Process explorer.exe -ArgumentList $projectPath
+    }
+})
+
+# Wire main panel WSL buttons to same handlers as sidebar buttons
+$btnStartMain.Add_Click({
+    $selected = $dgDistros.SelectedItem
+    if (-not $selected) { return }
+    $distroName = $selected.Name
+    Write-Log "Distro starten: $distroName..."
+    & wsl -d $distroName -- echo "WSL gestart" 2>&1 | Out-Null
+    Write-Log "Distro $distroName is gestart."
+    Refresh-Distros
+    Update-StatusPanel
+})
+
+$btnStopMain.Add_Click({
+    $selected = $dgDistros.SelectedItem
+    if (-not $selected) { return }
+    $distroName = $selected.Name
+    Write-Log "Distro stoppen: $distroName..."
+    & wsl --terminate $distroName 2>&1 | Out-Null
+    Write-Log "Distro $distroName is gestopt."
+    Refresh-Distros
+    Update-StatusPanel
+})
 
 # Function to toggle UI between WSL-missing and normal mode
 function Update-WslPresence {
@@ -405,13 +876,16 @@ function Update-WslPresence {
         # Re-detect distro name
         $script:dspDistro = Find-UbuntuDistro
         if (-not $script:dspDistro) { $script:dspDistro = "Ubuntu-24.04" }
+        # Update sidebar info
+        Update-ProjectInfo
+        Update-WorkflowContext
     } else {
         $pnlWslMissing.Visibility = "Visible"
         $pnlMainContent.Visibility = "Collapsed"
         # Show specific reason in the banner
         $reason = $script:wslState.reason
         $txtWslError.Text = [char]0x26A0 + " $reason"
-        $txtStatus.Text = $reason
+        Write-Log $reason
 
         # Adjust button text based on what's needed
         if ($script:wslState.needsVMPlatform) {
@@ -448,22 +922,226 @@ function Get-ProjectPath {
 }
 
 function Update-TerminalButton {
+    # Niet aanraken als er een build/flash bezig is
+    if ($script:buildInProgress) { return }
+
     $projectPath = Get-ProjectPath
-    if ($projectPath) {
-        $btnTerminal.IsEnabled = $true
-        $btnTerminal.ToolTip = "Open terminal in: $projectPath"
-        $btnBuild.IsEnabled = $true
-        $btnBuild.ToolTip = "Build project in: $projectPath"
-        $btnFlash.IsEnabled = $true
-        $btnFlash.ToolTip = "Flash firmware naar gekoppelde Pico"
-    } else {
+    # Gebruik de WSL running-status uit Update-StatusPanel
+    $wslRunning = $script:wslIsRunning -eq $true
+
+    if (-not $projectPath) {
         $btnTerminal.IsEnabled = $false
         $btnTerminal.ToolTip = "Haal eerst het DSP project op"
         $btnBuild.IsEnabled = $false
         $btnBuild.ToolTip = "Haal eerst het DSP project op"
         $btnFlash.IsEnabled = $false
         $btnFlash.ToolTip = "Haal eerst het DSP project op"
+    } elseif (-not $wslRunning) {
+        $btnTerminal.IsEnabled = $false
+        $btnTerminal.ToolTip = "Start eerst de WSL distro"
+        $btnBuild.IsEnabled = $false
+        $btnBuild.ToolTip = "Start eerst de WSL distro"
+        $btnFlash.IsEnabled = $false
+        $btnFlash.ToolTip = "Start eerst de WSL distro"
+    } else {
+        $btnTerminal.IsEnabled = $true
+        $btnTerminal.ToolTip = "Open terminal in: $projectPath"
+        $btnBuild.IsEnabled = $true
+        $btnBuild.ToolTip = "Build project in: $projectPath"
+        # Flash wordt apart beheerd door Update-PicoButton (alleen aan als Pico gekoppeld)
     }
+}
+
+# Update the sidebar project info card
+function Update-ProjectInfo {
+    # Gebruik de WSL running-status uit Update-StatusPanel
+    $wslRunning = $script:wslIsRunning -eq $true
+
+    $projectPath = Get-ProjectPath
+    if ($projectPath) {
+        $folderName = Split-Path $projectPath -Leaf
+        $txtProjectName.Text = $folderName
+        $txtProjectPath.Text = $projectPath
+        $txtProjectStatus.Text = "Gekoppeld"
+        $txtProjectStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#a6e3a1")
+        $btnUnlinkProject.Visibility = "Visible"
+        $btnOpenFolder.Visibility = "Visible"
+        $txtProjectAuthor.Visibility = "Visible"
+        $btnCloneRepo.Visibility = "Collapsed"
+    } else {
+        $txtProjectName.Text = "Geen project"
+        if ($wslRunning) {
+            $txtProjectPath.Text = "Klik 'Koppelen' om te starten"
+            $btnCloneRepo.IsEnabled = $true
+        } else {
+            $txtProjectPath.Text = "Start WSL om een project te koppelen"
+            $btnCloneRepo.IsEnabled = $false
+        }
+        $txtProjectStatus.Text = "Niet geconfigureerd"
+        $txtProjectStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#f38ba8")
+        $btnUnlinkProject.Visibility = "Collapsed"
+        $txtProjectAuthor.Visibility = "Collapsed"
+        $btnOpenFolder.Visibility = "Collapsed"
+        $btnCloneRepo.Visibility = "Visible"
+    }
+}
+
+# Update the main status panel (3-column: WSL, Details, Project)
+function Update-StatusPanel {
+    # Selected distro title
+    $selected = $dgDistros.SelectedItem
+    if ($selected) {
+        $txtSelectedDistro.Text = $selected.Name
+    } elseif ($script:dspDistro) {
+        $txtSelectedDistro.Text = $script:dspDistro
+    } else {
+        $txtSelectedDistro.Text = "Geen distro"
+    }
+
+    # WSL status column
+    $wslRunning = $false
+    if ($script:wslInstalled -and $selected) {
+        $wslOut = (& wsl --list --verbose 2>&1 | Out-String) -replace '\x00', ''
+        $distroName = $selected.Name
+        if ($wslOut -match "$([regex]::Escape($distroName))\s+Running") {
+            $wslRunning = $true
+        }
+    }
+    $script:wslIsRunning = $wslRunning
+    $greenBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#a6e3a1")
+    $grayBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#6c7086")
+    $redBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#f38ba8")
+
+    if ($wslRunning) {
+        $dotWslStatus.Fill = $greenBrush
+        $txtWslRunState.Text = "Running"
+        $txtWslRunState.Foreground = $greenBrush
+
+        # Uptime ophalen via /proc/uptime
+        try {
+            $uptimeRaw = (& wsl -d $selected.Name -- cat /proc/uptime 2>&1 | Out-String).Trim()
+            if ($uptimeRaw -match '^([\d\.]+)') {
+                $uptimeSec = [int][double]$Matches[1]
+                $days = [math]::Floor($uptimeSec / 86400)
+                $hours = [math]::Floor(($uptimeSec % 86400) / 3600)
+                $mins = [math]::Floor(($uptimeSec % 3600) / 60)
+                if ($days -gt 0) {
+                    $txtWslUptime.Text = "Uptime: ${days}d ${hours}u ${mins}m"
+                } elseif ($hours -gt 0) {
+                    $txtWslUptime.Text = "Uptime: ${hours}u ${mins}m"
+                } else {
+                    $txtWslUptime.Text = "Uptime: ${mins}m"
+                }
+            } else {
+                $txtWslUptime.Text = ""
+            }
+        } catch {
+            $txtWslUptime.Text = ""
+        }
+
+        # Memory info ophalen via /proc/meminfo (WSL gebruikt)
+        try {
+            $memRaw = (& wsl -d $selected.Name -- cat /proc/meminfo 2>&1 | Out-String)
+            $memTotal = 0; $memAvail = 0
+            if ($memRaw -match 'MemTotal:\s+(\d+)') { $memTotal = [long]$Matches[1] }
+            if ($memRaw -match 'MemAvailable:\s+(\d+)') { $memAvail = [long]$Matches[1] }
+            if ($memTotal -gt 0) {
+                $memUsedGB = [math]::Round(($memTotal - $memAvail) / 1048576, 1)
+                $txtDetailMem.Text = "Memory: ${memUsedGB} GB in gebruik"
+            } else {
+                $txtDetailMem.Text = "Memory: --"
+            }
+        } catch {
+            $txtDetailMem.Text = "Memory: --"
+        }
+
+        # Disk info ophalen via df
+        try {
+            $dfRaw = (& wsl -d $selected.Name -- df -BG / 2>&1 | Out-String) -replace '\x00', ''
+            $dfLines = $dfRaw -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" -and $_ -notmatch '^Filesystem' }
+            $matched = $false
+            foreach ($dfLine in $dfLines) {
+                if ($dfLine -match '(\d+)G\s+(\d+)G\s+(\d+)G\s+(\d+)%') {
+                    $diskUsed = $Matches[2]
+                    $txtDetailDisk.Text = "Disk: ${diskUsed} GB in gebruik"
+                    $matched = $true
+                    break
+                }
+            }
+            if (-not $matched) { $txtDetailDisk.Text = "Disk: --" }
+        } catch {
+            $txtDetailDisk.Text = "Disk: --"
+        }
+
+        # Home directory
+        try {
+            $homePath = (& wsl -d $selected.Name -- bash -c 'echo $HOME' 2>&1 | Out-String).Trim()
+            if ($homePath) {
+                $txtDetailHome.Text = $homePath
+            } else {
+                $txtDetailHome.Text = "/home/student"
+            }
+        } catch {
+            $txtDetailHome.Text = "/home/student"
+        }
+
+    } else {
+        $dotWslStatus.Fill = $grayBrush
+        $txtWslRunState.Text = "Stopped"
+        $txtWslRunState.Foreground = $grayBrush
+        $txtWslUptime.Text = ""
+        $txtDetailMem.Text = "Memory: --"
+        $txtDetailDisk.Text = "Disk: --"
+        $txtDetailHome.Text = ""
+    }
+
+    if ($selected) {
+        $txtWslVersion.Text = "WSL $($selected.Version)"
+    }
+
+    # Pico column — show selected or first attached Pico
+    $yellowBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#f9e2af")
+    $selectedPico = $dgPicos.SelectedItem
+    if (-not $selectedPico -and $dgPicos.Items.Count -gt 0) {
+        $selectedPico = $dgPicos.Items[0]
+    }
+    if ($selectedPico) {
+        $txtPicoDescMain.Text = $selectedPico.Desc
+        $txtPicoIdMain.Text = $selectedPico.Id
+        if ($selectedPico.Status -eq "Gekoppeld aan WSL") {
+            $dotPicoStatusMain.Fill = $greenBrush
+            $txtPicoStatusMain.Text = "Gekoppeld"
+            $txtPicoStatusMain.Foreground = $greenBrush
+        } elseif ($selectedPico.Status -eq "Alleen Windows") {
+            $dotPicoStatusMain.Fill = $yellowBrush
+            $txtPicoStatusMain.Text = "Alleen Windows"
+            $txtPicoStatusMain.Foreground = $yellowBrush
+        } else {
+            $dotPicoStatusMain.Fill = $grayBrush
+            $txtPicoStatusMain.Text = $selectedPico.Status
+            $txtPicoStatusMain.Foreground = $grayBrush
+        }
+    } else {
+        $dotPicoStatusMain.Fill = $grayBrush
+        $txtPicoStatusMain.Text = "Geen Pico"
+        $txtPicoStatusMain.Foreground = $grayBrush
+        $txtPicoDescMain.Text = ""
+        $txtPicoIdMain.Text = ""
+    }
+}
+
+# Compatibility wrapper — old code calls Update-WorkflowContext
+function Update-WorkflowContext {
+    Update-StatusPanel
+}
+
+# Distro management buttons: only active when a distro is selected
+function Update-DistroButtons {
+    $selected = $dgDistros.SelectedItem
+    $hasSelection = $null -ne $selected
+    $btnStart.IsEnabled = $hasSelection
+    $btnStop.IsEnabled = $hasSelection
+    $btnRemove.IsEnabled = $hasSelection
 }
 
 # Log file in same directory as script
@@ -508,16 +1186,62 @@ try {
     return $lines
 }
 
-# Helper: log message (GUI + file)
+# Helper: check if ScrollViewer is at the bottom
+function Test-ScrollAtBottom {
+    param($sv)
+    if ($sv.ExtentHeight -le $sv.ViewportHeight) { return $true }
+    return ($sv.VerticalOffset + $sv.ViewportHeight) -ge ($sv.ExtentHeight - 5)
+}
+
+# Helper: log message (GUI Status Log + status bar + file)
 function Write-Log {
     param([string]$Message)
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logLine = "[$timestamp] $Message"
-    # Write to file
     try { Add-Content -Path $logFile -Value $logLine -Encoding UTF8 } catch {}
-    # Write to GUI
+    $wasAtBottom = Test-ScrollAtBottom $svLog
     $txtLog.Text += "$logLine`n"
+    if ($wasAtBottom) { $svLog.UpdateLayout(); $svLog.ScrollToEnd() }
     $txtStatus.Text = $Message
+    $txtStatusTime.Text = (Get-Date -Format "HH:mm:ss")
+}
+
+# Helper: verbose console output (GUI Console panel + file)
+function Write-Console {
+    param([string]$Message)
+    $timestamp = Get-Date -Format "HH:mm:ss"
+    $logLine = "[$timestamp] $Message"
+    try { Add-Content -Path $logFile -Value $logLine -Encoding UTF8 } catch {}
+    $wasAtBottom = Test-ScrollAtBottom $svConsole
+    $txtConsole.Text += "$logLine`n"
+    if ($wasAtBottom) { $svConsole.UpdateLayout(); $svConsole.ScrollToEnd() }
+}
+
+# Scroll-down button visibility: show when not at bottom
+$svLog.Add_ScrollChanged({
+    if (Test-ScrollAtBottom $svLog) {
+        $btnScrollLog.Visibility = "Collapsed"
+    } else {
+        $btnScrollLog.Visibility = "Visible"
+    }
+})
+
+$svConsole.Add_ScrollChanged({
+    if (Test-ScrollAtBottom $svConsole) {
+        $btnScrollConsole.Visibility = "Collapsed"
+    } else {
+        $btnScrollConsole.Visibility = "Visible"
+    }
+})
+
+# Scroll-down button click handlers
+$btnScrollLog.Add_Click({ $svLog.ScrollToEnd() })
+$btnScrollConsole.Add_Click({ $svConsole.ScrollToEnd() })
+
+# Helper: status bar tekst direct zetten + in status log opnemen
+function Set-Status {
+    param([string]$Message)
+    Write-Log $Message
 }
 
 # Install progress timer — shows elapsed time so user knows the system isn't frozen
@@ -546,6 +1270,115 @@ function Start-InstallTimer {
 function Stop-InstallTimer {
     $installTimer.Stop()
     $script:installStartTime = $null
+}
+
+# ===== BACKGROUND TASK INFRASTRUCTURE =====
+# Runs long operations in a background runspace so the WPF UI stays responsive.
+# Uses a synchronized hashtable + ConcurrentQueues for thread-safe message passing.
+# A DispatcherTimer on the UI thread polls for messages and completion.
+
+$script:bgRunspace = $null
+$script:bgPowerShell = $null
+$script:bgSync = $null
+$script:bgOnComplete = $null
+
+$bgPollTimer = New-Object System.Windows.Threading.DispatcherTimer
+$bgPollTimer.Interval = [TimeSpan]::FromMilliseconds(80)
+$bgPollTimer.Add_Tick({
+    if (-not $script:bgSync) { return }
+    # Drain console messages
+    $msg = $null
+    while ($script:bgSync.ConsoleQueue.TryDequeue([ref]$msg)) {
+        Write-Console $msg
+    }
+    # Drain status messages
+    while ($script:bgSync.StatusQueue.TryDequeue([ref]$msg)) {
+        Write-Log $msg
+    }
+    # Drain status-bar-only messages (no log, e.g. percentage ticks)
+    while ($script:bgSync.StatusBarQueue.TryDequeue([ref]$msg)) {
+        $txtStatus.Text = $msg
+    }
+    # Check completion
+    if ($script:bgSync.Done) {
+        $bgPollTimer.Stop()
+        $callback = $script:bgOnComplete
+        $success = $script:bgSync.Success
+        $errorMsg = $script:bgSync.Error
+        $resultData = $script:bgSync.ResultData
+        # Cleanup runspace
+        try {
+            if ($script:bgPowerShell) { $script:bgPowerShell.Dispose() }
+            if ($script:bgRunspace) { $script:bgRunspace.Dispose() }
+        } catch {}
+        $script:bgPowerShell = $null
+        $script:bgRunspace = $null
+        $script:bgSync = $null
+        $script:bgOnComplete = $null
+        # Invoke completion callback on UI thread
+        if ($callback) { & $callback $success $errorMsg $resultData }
+    }
+})
+
+function Start-BackgroundTask {
+    param(
+        [scriptblock]$Work,           # Scriptblock to run in background. Receives $sync hashtable.
+        [scriptblock]$OnComplete,     # Callback(bool $success, string $error, object $resultData) on UI thread
+        [hashtable]$Parameters = @{}  # Extra parameters to pass to the runspace
+    )
+
+    # Create synchronized hashtable for communication
+    $script:bgSync = [hashtable]::Synchronized(@{
+        ConsoleQueue  = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+        StatusQueue   = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+        StatusBarQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+        Done          = $false
+        Success       = $false
+        Error         = ""
+        ResultData    = $null
+    })
+    $script:bgOnComplete = $OnComplete
+
+    # Create runspace
+    $script:bgRunspace = [runspacefactory]::CreateRunspace()
+    $script:bgRunspace.ApartmentState = "STA"
+    $script:bgRunspace.Open()
+
+    # Create PowerShell instance
+    $script:bgPowerShell = [powershell]::Create()
+    $script:bgPowerShell.Runspace = $script:bgRunspace
+
+    # The background script wraps the user work in a try/catch
+    $wrapperScript = {
+        param($sync, $work, $extraParams)
+        try {
+            # Define helper functions accessible in the runspace
+            function BG-Console { param([string]$Message); $sync.ConsoleQueue.Enqueue($Message) }
+            function BG-Status { param([string]$Message); $sync.StatusQueue.Enqueue($Message) }
+            function BG-StatusBar { param([string]$Message); $sync.StatusBarQueue.Enqueue($Message) }
+
+            # Execute the actual work
+            $sb = [scriptblock]::Create($work)
+            & $sb $sync $extraParams
+            if (-not $sync.Done) {
+                $sync.Success = $true
+                $sync.Done = $true
+            }
+        } catch {
+            $sync.Error = "$_"
+            $sync.Success = $false
+            $sync.Done = $true
+        }
+    }
+
+    $script:bgPowerShell.AddScript($wrapperScript).
+        AddArgument($script:bgSync).
+        AddArgument($Work.ToString()).
+        AddArgument($Parameters) | Out-Null
+
+    # Start background work + polling timer
+    $script:bgPowerShell.BeginInvoke() | Out-Null
+    $bgPollTimer.Start()
 }
 
 # Helper: refresh distro list
@@ -592,34 +1425,212 @@ function Refresh-Distros {
                 Name    = $distroName
                 State   = $Matches[2]
                 Version = $Matches[3]
-                Default = if ($isDefault) { "★" } else { "" }
+                Default = if ($isDefault) { " • Default" } else { "" }
             }
             $dgDistros.Items.Add($item) | Out-Null
         }
     }
 
     Write-Log "$($dgDistros.Items.Count) distro('s) gevonden."
+
+    # Auto-selecteer Ubuntu distro (of eerste beschikbare)
+    if ($dgDistros.Items.Count -gt 0 -and $dgDistros.SelectedIndex -lt 0) {
+        $ubuntuIdx = -1
+        for ($i = 0; $i -lt $dgDistros.Items.Count; $i++) {
+            if ($dgDistros.Items[$i].Name -match "Ubuntu") {
+                $ubuntuIdx = $i
+                break
+            }
+        }
+        if ($ubuntuIdx -ge 0) {
+            $dgDistros.SelectedIndex = $ubuntuIdx
+        } else {
+            $dgDistros.SelectedIndex = 0
+        }
+    }
+
+    Update-DistroButtons
 }
 
-# Button: Refresh
-$btnRefresh.Add_Click({
-    Refresh-Distros
-})
+# Refresh is now triggered by distro selection change (no separate button)
 
 # Helper: disable/enable all buttons during long operations
 function Set-ButtonsEnabled {
     param([bool]$Enabled)
     $btnInstall.IsEnabled = $Enabled
-    $btnRefresh.IsEnabled = $Enabled
+    if ($btnRefresh) { $btnRefresh.IsEnabled = $Enabled }
     $btnStart.IsEnabled = $Enabled
     $btnStop.IsEnabled = $Enabled
     $btnPico.IsEnabled = $Enabled
     $btnRemove.IsEnabled = $Enabled
     $btnCloneRepo.IsEnabled = $Enabled
+    $btnUnlinkProject.IsEnabled = $Enabled
     $btnTerminal.IsEnabled = $Enabled
     $btnBuild.IsEnabled = $Enabled
-    $btnFlash.IsEnabled = $Enabled
+    # btnFlash wordt NIET hier beheerd — alleen Update-PicoButton mag deze aan/uitzetten
+    # (voorkomt dat Flash bereikbaar is zonder usbipd of gekoppelde Pico)
+    if ($btnStartMain) { $btnStartMain.IsEnabled = $Enabled }
+    if ($btnStopMain) { $btnStopMain.IsEnabled = $Enabled }
+    if ($btnRemoveMain) { $btnRemoveMain.IsEnabled = $Enabled }
+    if ($btnOpenFolder) { $btnOpenFolder.IsEnabled = $Enabled }
+
+    # When re-enabling, reapply smart states so buttons respect prerequisites
+    if ($Enabled) {
+        Update-TerminalButton      # disables Terminal/Build/Flash if no project
+        Update-PicoButton          # disables Pico/Flash if WSL not running or no Pico attached
+        Update-DistroButtons       # disables Start/Stop/Wis if no distro selected
+        Update-ProjectInfo         # updates sidebar project card
+        Update-WorkflowContext     # updates workflow context line
+    }
 }
+
+# ============================================================
+# UPDATE FUNCTIE — vergelijk lokale bestanden met GitHub
+# ============================================================
+$script:updateGitHubRepo = "dannyvanderzande/DSP-WSL-Manager"
+$script:updateBranch = "main"
+$script:updateAvailable = $false
+$script:updateFiles = @()
+
+# Bestanden die we bijhouden voor updates (relatieve paden in de repo)
+# Links: repo-pad → rechts: lokaal pad relatief aan $scriptDir
+$script:updateFileMap = @{
+    "DSP-Manager-Core.ps1"                  = "DSP-Manager-Core.ps1"
+    "Start DSP Manager.bat"                 = "Start DSP Manager.bat"
+}
+
+function Get-GitBlobSha {
+    param([string]$FilePath)
+    # Git blob SHA-1 = SHA1("blob <size>\0<content>")
+    if (-not (Test-Path $FilePath)) { return $null }
+    $bytes = [System.IO.File]::ReadAllBytes($FilePath)
+    $header = [System.Text.Encoding]::ASCII.GetBytes("blob $($bytes.Length)`0")
+    $sha = [System.Security.Cryptography.SHA1]::Create()
+    $sha.TransformBlock($header, 0, $header.Length, $null, 0) | Out-Null
+    $sha.TransformFinalBlock($bytes, 0, $bytes.Length) | Out-Null
+    return ($sha.Hash | ForEach-Object { $_.ToString("x2") }) -join ""
+}
+
+function Check-ForUpdates {
+    Write-Log "Updates controleren..."
+    $script:updateAvailable = $false
+    $script:updateFiles = @()
+
+    try {
+        # Haal bestandslijst op van GitHub (root)
+        $rootUrl = "https://api.github.com/repos/$($script:updateGitHubRepo)/contents/?ref=$($script:updateBranch)"
+        $rootJson = (Invoke-WebRequest -Uri $rootUrl -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json
+
+        # Haal ook support scripts op
+        $supportUrl = "https://api.github.com/repos/$($script:updateGitHubRepo)/contents/support%20scripts?ref=$($script:updateBranch)"
+        $supportJson = @()
+        try { $supportJson = (Invoke-WebRequest -Uri $supportUrl -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json } catch {}
+
+        $allFiles = @{}
+        foreach ($f in $rootJson) { if ($f.type -eq "file") { $allFiles[$f.name] = $f.sha } }
+        foreach ($f in $supportJson) { if ($f.type -eq "file") { $allFiles["support scripts/$($f.name)"] = $f.sha } }
+
+        foreach ($repoPath in $script:updateFileMap.Keys) {
+            $localRelPath = $script:updateFileMap[$repoPath]
+            $localFullPath = Join-Path $scriptDir $localRelPath
+
+            if ($allFiles.ContainsKey($repoPath)) {
+                $remoteSha = $allFiles[$repoPath]
+                $localSha = Get-GitBlobSha $localFullPath
+
+                if ($localSha -ne $remoteSha) {
+                    $script:updateFiles += @{
+                        RepoPath  = $repoPath
+                        LocalPath = $localFullPath
+                        RemoteSha = $remoteSha
+                        LocalSha  = if ($localSha) { $localSha } else { "(nieuw)" }
+                    }
+                }
+            }
+        }
+
+        if ($script:updateFiles.Count -gt 0) {
+            $script:updateAvailable = $true
+            $btnUpdate.Visibility = "Visible"
+            $dotUpdate.Visibility = "Visible"
+            Write-Log "$($script:updateFiles.Count) update(s) beschikbaar."
+        } else {
+            $btnUpdate.Visibility = "Visible"
+            $dotUpdate.Visibility = "Collapsed"
+            Write-Log "Geen updates gevonden — alles is up-to-date."
+        }
+    } catch {
+        Write-Log "Update check mislukt: $_"
+        $btnUpdate.Visibility = "Collapsed"
+    }
+}
+
+function Install-Updates {
+    if ($script:updateFiles.Count -eq 0) {
+        Write-Log "Geen updates om te installeren."
+        return
+    }
+
+    $fileList = ($script:updateFiles | ForEach-Object { Split-Path $_.LocalPath -Leaf }) -join "`n- "
+    $updateDir = Join-Path $scriptDir "update"
+
+    $choice = Show-CustomDialog -Message "Er zijn $($script:updateFiles.Count) update(s) beschikbaar:`n`n- $fileList`n`nBestanden worden gedownload naar:`n$updateDir`n`nDe huidige versie wordt NIET overschreven." -Title "Updates Beschikbaar" -Buttons "YesNo" -Type "Question"
+    if ($choice -ne "Yes") { return }
+
+    # Maak update directory aan (leeg beginnen)
+    if (Test-Path $updateDir) { Remove-Item $updateDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $updateDir -Force | Out-Null
+
+    foreach ($file in $script:updateFiles) {
+        $repoPath = $file.RepoPath
+        $localRelPath = $file.LocalPath.Substring($scriptDir.Length + 1)
+        $fileName = Split-Path $localRelPath -Leaf
+        $targetPath = Join-Path $updateDir $localRelPath
+
+        try {
+            # Zorg dat de doelmap bestaat binnen update/
+            $targetDir = Split-Path $targetPath -Parent
+            if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
+
+            # Download van GitHub
+            $rawUrl = "https://raw.githubusercontent.com/$($script:updateGitHubRepo)/$($script:updateBranch)/$($repoPath -replace ' ', '%20')"
+            Write-Log "Downloaden: $fileName..."
+            Invoke-WebRequest -Uri $rawUrl -OutFile $targetPath -UseBasicParsing -TimeoutSec 30
+            Write-Log "Gedownload: $fileName -> update\$localRelPath"
+        } catch {
+            Write-Log "Fout bij downloaden van ${fileName}: $_"
+        }
+    }
+
+    $script:updateAvailable = $false
+    $dotUpdate.Visibility = "Collapsed"
+
+    Write-Log "Updates gedownload naar: $updateDir"
+    Show-CustomDialog -Message "Updates gedownload naar de 'update' map:`n$updateDir`n`nControleer de bestanden en kopieer ze handmatig als alles klopt." -Title "Updates Gedownload" -Buttons "OK" -Type "Success"
+
+    # Open de update map in Explorer
+    Start-Process explorer.exe -ArgumentList $updateDir
+}
+
+# Update knop: klik = installeer updates of check handmatig
+$btnCheckUpdate = $window.FindName("btnCheckUpdate")
+
+# Gedeelde update-actie voor beide knoppen
+$script:doUpdateCheck = {
+    if ($script:updateAvailable) {
+        Install-Updates
+    } else {
+        Check-ForUpdates
+        if (-not $script:updateAvailable) {
+            Show-CustomDialog -Message "Alles is up-to-date!" -Title "Geen Updates" -Buttons "OK" -Type "Success"
+        } else {
+            Install-Updates
+        }
+    }
+}
+
+$btnUpdate.Add_Click({ & $script:doUpdateCheck })
+$btnCheckUpdate.Add_Click({ & $script:doUpdateCheck })
 
 # Button: Install WSL (shown when WSL is not present on the system)
 $btnInstallWSL.Add_Click({
@@ -632,27 +1643,16 @@ $btnInstallWSL.Add_Click({
         $action = "wsl --install --no-distribution"
         $actionDesc = "Virtual Machine Platform inschakelen"
     } elseif ($script:wslState.needsBIOS) {
-        [System.Windows.MessageBox]::Show($window,
-            "Virtualisatie (VT-x / AMD-V) moet worden ingeschakeld in het BIOS.`n`nDit kan niet automatisch worden gedaan.`n`n1. Herstart de computer`n2. Ga naar het BIOS (meestal DEL of F2 bij opstarten)`n3. Schakel Virtualization Technology in`n4. Sla op en herstart",
-            "BIOS instelling vereist",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Information
-        )
+        Show-CustomDialog -Message "Virtualisatie (VT-x / AMD-V) moet worden ingeschakeld in het BIOS.`n`nDit kan niet automatisch worden gedaan.`n`n1. Herstart de computer`n2. Ga naar het BIOS (meestal DEL of F2 bij opstarten)`n3. Schakel Virtualization Technology in`n4. Sla op en herstart" -Title "BIOS instelling vereist" -Buttons "OK" -Type "Info"
         return
     }
 
-    $result = [System.Windows.MessageBox]::Show($window,
-        "$actionDesc`n`nDit vereist administratorrechten en waarschijnlijk een herstart.`n`nDoorgaan?",
-        $actionDesc,
-        [System.Windows.MessageBoxButton]::YesNo,
-        [System.Windows.MessageBoxImage]::Question
-    )
+    $result = Show-CustomDialog -Message "$actionDesc`n`nDit vereist administratorrechten en waarschijnlijk een herstart.`n`nDoorgaan?" -Title "Melding" -Buttons "YesNo" -Type "Question"
 
-    if ($result -ne [System.Windows.MessageBoxResult]::Yes) { return }
+    if ($result -ne "Yes") { return }
 
     $btnInstallWSL.IsEnabled = $false
-    $txtStatus.Text = "$actionDesc... (dit kan even duren)"
-    Write-Log "$actionDesc via '$action'..."
+    Write-Log "$actionDesc... (dit kan even duren)"
     $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
 
     $wslInstallOutput = @()
@@ -661,14 +1661,21 @@ $btnInstallWSL.Add_Click({
         foreach ($rawLine in $lines) {
             $line = ($rawLine -replace '\x00', '').Trim()
             if ($line) {
-                Write-Log $line
+                Write-Console $line
                 $wslInstallOutput += $line
             }
         }
     } catch {
-        Write-Log "$actionDesc geannuleerd of mislukt: $_"
+        $errMsg = "$_"
+        if ($errMsg -match "canceled|geannuleerd|user") {
+            Write-Log "$actionDesc geannuleerd door gebruiker."
+            Write-Log "$actionDesc geannuleerd."
+        } else {
+            Write-Log "$actionDesc mislukt: $errMsg"
+            Write-Console "FOUT: $errMsg"
+            Write-Log "$actionDesc mislukt."
+        }
         $btnInstallWSL.IsEnabled = $true
-        $txtStatus.Text = "$actionDesc geannuleerd."
         return
     }
 
@@ -679,22 +1686,12 @@ $btnInstallWSL.Add_Click({
     if ($script:wslInstalled) {
         Write-Log "WSL is nu functioneel!"
         Refresh-Distros
-        $txtStatus.Text = "WSL is gereed! Je kunt nu een DSP distro installeren."
-        [System.Windows.MessageBox]::Show($window,
-            "WSL is succesvol geconfigureerd!`n`nJe kunt nu een DSP distro installeren via de groene knop.",
-            "WSL Gereed",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Information
-        )
+        Write-Log "WSL is gereed! Je kunt nu een DSP distro installeren."
+        Show-CustomDialog -Message "WSL is succesvol geconfigureerd!`n`nJe kunt nu een DSP distro installeren via de groene knop." -Title "WSL Gereed" -Buttons "OK" -Type "Info"
     } else {
         Write-Log "WSL nog niet functioneel na $actionDesc. Herstart waarschijnlijk nodig."
         $btnInstallWSL.IsEnabled = $true
-        [System.Windows.MessageBox]::Show($window,
-            "De wijziging is doorgevoerd maar de computer moet waarschijnlijk opnieuw worden opgestart.`n`nHerstart je computer en start daarna dit programma opnieuw.",
-            "Herstart vereist",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "De wijziging is doorgevoerd maar de computer moet waarschijnlijk opnieuw worden opgestart.`n`nHerstart je computer en start daarna dit programma opnieuw." -Title "Herstart vereist" -Buttons "OK" -Type "Warning"
     }
 })
 
@@ -704,23 +1701,13 @@ $btnInstall.Add_Click({
 
     # Verify WSL is actually functional before attempting distro install
     if (-not $script:wslInstalled) {
-        [System.Windows.MessageBox]::Show($window,
-            "WSL is nog niet actief.`n`nAls je WSL net hebt geinstalleerd, herstart dan eerst je computer.",
-            "WSL niet actief",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "WSL is nog niet actief.`n`nAls je WSL net hebt geïnstalleerd, herstart dan eerst je computer." -Title "WSL niet actief" -Buttons "OK" -Type "Warning"
         return
     }
 
-    $result = [System.Windows.MessageBox]::Show($window,
-        "Wil je een nieuwe DSP distro (Ubuntu 24.04) installeren?`n`nGebruiker: student`nWachtwoord: student`n`nDit kan enkele minuten duren.`nDe interface reageert niet tijdens de installatie.",
-        "Nieuwe DSP Distro Installeren",
-        [System.Windows.MessageBoxButton]::YesNo,
-        [System.Windows.MessageBoxImage]::Question
-    )
+    $result = Show-CustomDialog -Message "Wil je een nieuwe DSP distro (Ubuntu 24.04) installeren?`n`nGebruiker: student`nWachtwoord: student`n`nDit kan enkele minuten duren.`nDe interface reageert niet tijdens de installatie." -Title "Nieuwe DSP Distro Installeren" -Buttons "YesNo" -Type "Question"
 
-    if ($result -ne [System.Windows.MessageBoxResult]::Yes) {
+    if ($result -ne "Yes") {
         Write-Log "Installatie geannuleerd."
         return
     }
@@ -732,13 +1719,8 @@ $btnInstall.Add_Click({
     if ($existingUbuntu.Count -gt 0) {
         $foundList = ($existingUbuntu | Select-Object -Unique) -join " en "
 
-        $overwrite = [System.Windows.MessageBox]::Show($window,
-            "$foundList bestaat al!`n`nWil je deze VERWIJDEREN en opnieuw installeren?`nAlle data in deze distro('s) gaat verloren!",
-            "Distro bestaat al",
-            [System.Windows.MessageBoxButton]::YesNo,
-            [System.Windows.MessageBoxImage]::Warning
-        )
-        if ($overwrite -ne [System.Windows.MessageBoxResult]::Yes) {
+        $overwrite = Show-CustomDialog -Message "$foundList bestaat al!`n`nWil je deze VERWIJDEREN en opnieuw installeren?`nAlle data in deze distro('s) gaat verloren!" -Title "Distro bestaat al" -Buttons "YesNo" -Type "Warning"
+        if ($overwrite -ne "Yes") {
             Write-Log "Installatie geannuleerd."
             return
         }
@@ -758,139 +1740,116 @@ $btnInstall.Add_Click({
     Start-InstallTimer "Bezig met installeren..."
     $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
 
-    # Quick network check before downloading
-    $netOk = $false
-    try { $netOk = (Test-Connection -ComputerName raw.githubusercontent.com -Count 1 -Quiet -ErrorAction SilentlyContinue) } catch {}
-    if (-not $netOk) {
-        Write-Log "Geen internetverbinding gedetecteerd."
-        Stop-InstallTimer
-        $window.Title = "DSP WSL Manager"
-        Set-ButtonsEnabled $true
-        [System.Windows.MessageBox]::Show($window,
-            "Geen internetverbinding gevonden.`n`nDe installatie heeft internet nodig om Ubuntu te downloaden.`nControleer je verbinding en probeer het opnieuw.",
-            "Geen internet",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
-        return
-    }
+    # Run the entire installation in a background runspace
+    Start-BackgroundTask -Parameters @{ dspDistro = $script:dspDistro } -Work {
+        param($sync, $params)
+        $dspDistro = $params.dspDistro
 
-    # Determine correct Ubuntu distro name from available online list
-    Write-Log "Beschikbare distributies ophalen..."
-    $onlineList = (& wsl --list --online 2>&1 | Out-String) -replace '\x00', ''
-    Write-Log "Online lijst: $onlineList"
-    # Try Ubuntu-24.04 first, then Ubuntu24.04, then just Ubuntu
-    $distroName = $null
-    foreach ($candidate in @("Ubuntu-24.04", "Ubuntu24.04", "Ubuntu-24.04-LTS")) {
-        if ($onlineList -match [regex]::Escape($candidate)) {
-            $distroName = $candidate
-            break
+        # Network check
+        $netOk = $false
+        try { $netOk = (Test-Connection -ComputerName raw.githubusercontent.com -Count 1 -Quiet -ErrorAction SilentlyContinue) } catch {}
+        if (-not $netOk) {
+            BG-Status "Geen internetverbinding gedetecteerd."
+            $sync.Error = "NO_NETWORK"
+            $sync.Success = $false
+            $sync.Done = $true
+            return
         }
-    }
-    if (-not $distroName) {
-        # Fallback: pick any Ubuntu line from the online list
-        $ubuntuLine = ($onlineList -split "`r?`n" | Where-Object { $_ -match "^\s*Ubuntu" } | Select-Object -First 1)
-        if ($ubuntuLine -and $ubuntuLine -match "^\s*(\S+)") {
-            $distroName = $Matches[1]
-        } else {
-            $distroName = "Ubuntu"
-        }
-    }
-    Write-Log "Geselecteerde distributie: $distroName"
 
-    # Install the distro with --no-launch so we can configure it
-    Write-Log "wsl --install -d $distroName --no-launch"
-    $installOutput = @()
-    try {
-        # Distro install does not require admin — WSL is already installed at this point
-        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
-        $lines = (& wsl --install -d $distroName --no-launch 2>&1) | ForEach-Object { ($_ | Out-String) -replace '\x00', '' }
-        foreach ($rawLine in $lines) {
-            $line = ($rawLine -replace '\x00', '').Trim()
-            $line = $line -replace 'ge´nstalleerd', 'geinstalleerd'
-            if ($line) {
-                Write-Log $line
-                $installOutput += $line
+        # Determine correct Ubuntu distro name
+        BG-Status "Beschikbare distributies ophalen..."
+        $onlineList = (& wsl --list --online 2>&1 | Out-String) -replace '\x00', ''
+        BG-Console "Online lijst: $onlineList"
+        $distroName = $null
+        foreach ($candidate in @("Ubuntu-24.04", "Ubuntu24.04", "Ubuntu-24.04-LTS")) {
+            if ($onlineList -match [regex]::Escape($candidate)) {
+                $distroName = $candidate
+                break
             }
         }
-    } catch {
-        Write-Log "Distro installatie geannuleerd of mislukt: $_"
-        Stop-InstallTimer
-        $window.Title = "DSP WSL Manager"
-        Set-ButtonsEnabled $true
-        $txtStatus.Text = "Installatie geannuleerd."
-        return
-    }
-
-    # Don't trust text output for success/failure — WSL often mixes informational reboot
-    # messages with successful installs. Instead, verify the distro actually exists.
-    # Retry several times because WSL install can take time to register the distro.
-    Write-Log "Wachten tot distro beschikbaar is..."
-    $script:installBaseText = "Wachten op distro registratie..."
-    $hasUbuntu = $null
-    for ($i = 0; $i -lt 12; $i++) {
-        # Flush UI so timer keeps ticking during sleep
-        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
-        # Sleep in small steps to allow timer updates
-        for ($s = 0; $s -lt 5; $s++) {
-            Start-Sleep -Seconds 1
-            $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+        if (-not $distroName) {
+            $ubuntuLine = ($onlineList -split "`r?`n" | Where-Object { $_ -match "^\s*Ubuntu" } | Select-Object -First 1)
+            if ($ubuntuLine -and $ubuntuLine -match "^\s*(\S+)") {
+                $distroName = $Matches[1]
+            } else {
+                $distroName = "Ubuntu"
+            }
         }
-        $postInstall = (& wsl --list --quiet 2>&1 | Out-String) -replace '\x00', ''
-        $installedDistros = $postInstall -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" -and $_ -notmatch "^docker-desktop" }
-        $hasUbuntu = $installedDistros | Where-Object { $_ -match "Ubuntu" }
-        if ($hasUbuntu) {
-            Write-Log "Distro gevonden na $((($i+1)*5)) seconden."
-            break
+        BG-Status "Geselecteerde distributie: $distroName"
+
+        # Install distro
+        BG-Status "wsl --install -d $distroName --no-launch"
+        $installOutput = @()
+        try {
+            $lines = (& wsl --install -d $distroName --no-launch 2>&1) | ForEach-Object { ($_ | Out-String) -replace '\x00', '' }
+            foreach ($rawLine in $lines) {
+                $line = ($rawLine -replace '\x00', '').Trim()
+                if ($line) {
+                    BG-Console $line
+                    $installOutput += $line
+                }
+            }
+        } catch {
+            BG-Status "Distro installatie mislukt: $_"
+            BG-Console "FOUT: $_"
+            $sync.Error = "INSTALL_FAILED"
+            $sync.Success = $false
+            $sync.Done = $true
+            return
         }
-        Write-Log "Poging $(($i+1))/12: distro nog niet gevonden..."
-    }
 
-    if (-not $hasUbuntu) {
-        Write-Log "Distro niet gevonden na 60 seconden. Installatie output: $($installOutput -join ' | ')"
-        Stop-InstallTimer
-        $window.Title = "DSP WSL Manager"
-        Set-ButtonsEnabled $true
-        [System.Windows.MessageBox]::Show($window,
-            "De distro is niet gevonden na installatie.`n`nMogelijk moet de computer opnieuw worden opgestart,`nof is er onvoldoende rechten/netwerkverbinding.`n`nControleer het logbestand voor details.",
-            "Distro niet gevonden",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
-        return
-    }
-    $actualDistroName = $hasUbuntu | Select-Object -First 1
-    Write-Log "Geinstalleerde distro naam: $actualDistroName"
-    # Update the script-level distro name for all subsequent operations
-    $script:dspDistro = $actualDistroName
-
-    # Clean up generic "Ubuntu" distro if wsl --install created it as a side effect (only if we also have a versioned one)
-    if ($script:dspDistro -ne "Ubuntu") {
-        $postClean = (& wsl --list --quiet 2>&1 | Out-String) -replace '\x00', ''
-        if (($postClean -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match "^Ubuntu$" }).Count -gt 0) {
-            Write-Log "Extra 'Ubuntu' distro gevonden, verwijderen..."
-            & wsl --unregister Ubuntu 2>&1 | Out-Null
+        # Wait for distro registration
+        BG-Status "Wachten tot distro beschikbaar is..."
+        BG-StatusBar "Wachten op distro registratie..."
+        $hasUbuntu = $null
+        for ($i = 0; $i -lt 12; $i++) {
+            Start-Sleep -Seconds 5
+            $postInstall = (& wsl --list --quiet 2>&1 | Out-String) -replace '\x00', ''
+            $installedDistros = $postInstall -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" -and $_ -notmatch "^docker-desktop" }
+            $hasUbuntu = $installedDistros | Where-Object { $_ -match "Ubuntu" }
+            if ($hasUbuntu) {
+                BG-Status "Distro gevonden na $((($i+1)*5)) seconden."
+                break
+            }
+            BG-Status "Poging $(($i+1))/12: distro nog niet gevonden..."
         }
-    }
 
-    # Configure default user via /etc/wsl.conf and create user
-    Write-Log "Gebruiker aanmaken, packages updaten en tools installeren..."
-    $script:installBaseText = "Tools en SDK installeren..."
-    $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+        if (-not $hasUbuntu) {
+            BG-Status "Distro niet gevonden na 60 seconden."
+            $sync.Error = "DISTRO_NOT_FOUND"
+            $sync.ResultData = ($installOutput -join ' | ')
+            $sync.Success = $false
+            $sync.Done = $true
+            return
+        }
+        $actualDistroName = ($hasUbuntu | Select-Object -First 1).Trim()
+        BG-Status "Geïnstalleerde distro naam: $actualDistroName"
+        $dspDistro = $actualDistroName
 
-    # Launch the distro to set up the user
-    $setupScript = @"
+        # Clean up generic "Ubuntu" if versioned one also exists
+        if ($dspDistro -ne "Ubuntu") {
+            $postClean = (& wsl --list --quiet 2>&1 | Out-String) -replace '\x00', ''
+            if (($postClean -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match "^Ubuntu$" }).Count -gt 0) {
+                BG-Status "Extra 'Ubuntu' distro gevonden, verwijderen..."
+                & wsl --unregister Ubuntu 2>&1 | Out-Null
+            }
+        }
+
+        # Setup script
+        BG-Status "Gebruiker aanmaken, packages updaten en tools installeren..."
+        BG-StatusBar "Tools en SDK installeren..."
+
+        $setupScript = @"
 #!/bin/bash
 set -e
 
-echo ">>> Creating user student..."
+echo ">>> Gebruiker 'student' aanmaken..."
 useradd -m -s /bin/bash -G sudo,plugdev student 2>/dev/null || echo "User student already exists"
 echo 'student:student' | chpasswd
 STUDENT_UID=`$(id -u student)
 echo ">>> student UID = `$STUDENT_UID"
 
-# Set as default user in wsl.conf
-echo ">>> Writing /etc/wsl.conf..."
+echo ">>> WSL configuratie schrijven..."
 cat > /etc/wsl.conf << 'WSLCONF'
 [boot]
 systemd=true
@@ -899,74 +1858,58 @@ systemd=true
 default=student
 WSLCONF
 
-# Disable Ubuntu OOBE first-run wizard
-echo ">>> Disabling OOBE via /etc/wsl-distribution.conf..."
+echo ">>> OOBE wizard uitschakelen..."
 cat > /etc/wsl-distribution.conf << DISTCONF
 [oobe]
 command = /bin/true
 defaultUid = `$STUDENT_UID
 DISTCONF
 
-# Also disable any cloud-init based first-run
 if [ -d /etc/cloud ]; then
-    echo ">>> Disabling cloud-init..."
+    echo ">>> Cloud-init uitschakelen..."
     touch /etc/cloud/cloud-init.disabled
 fi
 
-# Set up udev rules for all Raspberry Pi Pico modes
-echo ">>> Writing udev rules for Pico..."
+echo ">>> Pico udev regels instellen..."
 cat > /etc/udev/rules.d/99-pico.rules << 'UDEV'
-# Raspberry Pi Pico - all device modes
-# RP2040 BOOTSEL mode
 SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="0003", MODE="0666", GROUP="plugdev"
-# RP2040 CDC serial (MicroPython/CircuitPython REPL)
 SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="0005", MODE="0666", GROUP="plugdev"
-# RP2040 vendor-specific (picotool/custom firmware)
 SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="000a", MODE="0666", GROUP="plugdev"
-# RP2350 BOOTSEL mode (Pico 2)
 SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="000f", MODE="0666", GROUP="plugdev"
-# RP2350 CDC serial (Pico 2)
 SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="0009", MODE="0666", GROUP="plugdev"
-# Catch-all for any Raspberry Pi device
 SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", MODE="0666", GROUP="plugdev"
 UDEV
 
-# Update package index
 export DEBIAN_FRONTEND=noninteractive
-echo ">>> apt update..."
+echo ">>> Pakketlijst ophalen..."
 apt-get update -y
-echo ">>> apt upgrade..."
+echo ">>> Systeem upgraden..."
 apt-get upgrade -y
 
-# Install build dependencies and libusb
-echo ">>> Installing build tools and libusb..."
+echo ">>> Build tools installeren (cmake, gcc, libusb)..."
 apt-get install -y build-essential cmake pkg-config git \
     libusb-1.0-0 libusb-1.0-0-dev python3 usbutils
 
-# ARM toolchain for Pico firmware development
-echo ">>> Installing ARM toolchain..."
+echo ">>> ARM toolchain installeren (gcc-arm-none-eabi)..."
 apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
 
-# Install Pico SDK (shallow clone, no heavy submodules)
-echo ">>> Cloning Pico SDK (shallow)..."
+echo ">>> Pico SDK downloaden..."
 PICO_SDK_PATH="/opt/pico-sdk"
 if [ -d "`$PICO_SDK_PATH" ]; then
     echo "Pico SDK already exists, skipping clone."
 else
     git clone --depth 1 https://github.com/raspberrypi/pico-sdk.git "`$PICO_SDK_PATH"
     cd "`$PICO_SDK_PATH"
-    echo ">>> Pico SDK submodules initialiseren (tinyusb etc.)..."
+    echo ">>> Pico SDK submodules ophalen (tinyusb)..."
     git submodule update --init --depth 1
     cd /
 fi
 
-# Set PICO_SDK_PATH globally
-echo ">>> Setting PICO_SDK_PATH environment variable..."
+echo ">>> PICO_SDK_PATH instellen..."
 echo "export PICO_SDK_PATH=`$PICO_SDK_PATH" > /etc/profile.d/pico-sdk.sh
 chmod +x /etc/profile.d/pico-sdk.sh
 
-# Build and install picotool from source
-echo ">>> Cloning and building picotool (shallow)..."
+echo ">>> Picotool bouwen en installeren..."
 PICOTOOL_SRC="/tmp/picotool-build"
 rm -rf "`$PICOTOOL_SRC"
 git clone --depth 1 https://github.com/raspberrypi/picotool.git "`$PICOTOOL_SRC"
@@ -983,70 +1926,78 @@ echo "SETUP_COMPLETE"
 exit 0
 "@
 
-    Write-Log "Setup script starten in WSL..."
-    # Write setup script to temp file with Unix line endings
-    $setupScript = $setupScript -replace "`r`n", "`n"
-    $tempFile = Join-Path $env:TEMP "wsl-setup.sh"
-    [System.IO.File]::WriteAllText($tempFile, $setupScript, [System.Text.UTF8Encoding]::new($false))
-    # Convert Windows path to WSL /mnt/ path directly (no wslpath call needed)
-    $drive = $tempFile.Substring(0,1).ToLower()
-    $wslTempPath = "/mnt/$drive" + ($tempFile.Substring(2) -replace '\\', '/')
-    Write-Log "Script pad: $wslTempPath"
-    & wsl -d $script:dspDistro -u root -- bash "$wslTempPath" 2>&1 | ForEach-Object {
-        Write-Log $_
-        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
-    }
-    Remove-Item $tempFile -ErrorAction SilentlyContinue
+        BG-Status "Setup script starten in WSL..."
+        $setupScript = $setupScript -replace "`r`n", "`n"
+        $tempFile = Join-Path $env:TEMP "wsl-setup.sh"
+        [System.IO.File]::WriteAllText($tempFile, $setupScript, [System.Text.UTF8Encoding]::new($false))
+        $drive = $tempFile.Substring(0,1).ToLower()
+        $wslTempPath = "/mnt/$drive" + ($tempFile.Substring(2) -replace '\\', '/')
+        BG-Status "Script pad: $wslTempPath"
 
-    # Also try to set default user via the Ubuntu launcher exe (belt-and-suspenders)
-    # Only use versioned exe (ubuntu2404.exe) — generic ubuntu.exe can hang
-    Write-Log "Default user instellen via Ubuntu launcher..."
-    $launcherFound = $false
-    foreach ($exeName in @("ubuntu2404.exe", "ubuntu24.04.exe")) {
-        $exe = Get-Command $exeName -ErrorAction SilentlyContinue
-        if ($exe) {
-            Write-Log "Gevonden: $exeName"
-            $proc = Start-Process -FilePath $exe.Source -ArgumentList "config","--default-user","student" -NoNewWindow -Wait -PassThru -ErrorAction SilentlyContinue
-            Write-Log "  Exit code: $($proc.ExitCode)"
-            $launcherFound = $true
-            break
+        & wsl -d $dspDistro -u root -- bash "$wslTempPath" 2>&1 | ForEach-Object {
+            $line = "$_"
+            if ($line -match '>>>\s*(.+)') {
+                BG-Status ($Matches[1].Trim())
+            }
+            BG-Console $line
+        }
+        Remove-Item $tempFile -ErrorAction SilentlyContinue
+
+        # Try to set default user via Ubuntu launcher
+        BG-Status "Default user instellen via Ubuntu launcher..."
+        $launcherFound = $false
+        foreach ($exeName in @("ubuntu2404.exe", "ubuntu24.04.exe")) {
+            $exe = Get-Command $exeName -ErrorAction SilentlyContinue
+            if ($exe) {
+                BG-Status "Gevonden: $exeName"
+                $proc = Start-Process -FilePath $exe.Source -ArgumentList "config","--default-user","student" -NoNewWindow -Wait -PassThru -ErrorAction SilentlyContinue
+                BG-Status "  Exit code: $($proc.ExitCode)"
+                $launcherFound = $true
+                break
+            }
+        }
+        if (-not $launcherFound) {
+            BG-Status "Geen versioned Ubuntu launcher gevonden - wsl.conf + wsl-distribution.conf worden gebruikt."
+        }
+
+        # Terminate and restart
+        BG-Status "WSL herstarten om configuratie toe te passen..."
+        & wsl --terminate $dspDistro 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+
+        BG-Status "$dspDistro instellen als standaard WSL distro..."
+        & wsl --set-default $dspDistro 2>&1 | Out-Null
+
+        BG-Status "WSL distro starten..."
+        & wsl -d $dspDistro -- echo "WSL is gestart" 2>&1 | ForEach-Object {
+            BG-Console "$_"
+        }
+
+        BG-Status "Ubuntu 24.04 is geïnstalleerd en gestart! (user: student / ww: student)"
+        $sync.ResultData = $dspDistro
+        $sync.Success = $true
+        $sync.Done = $true
+
+    } -OnComplete {
+        param($success, $errorMsg, $resultData)
+        Stop-InstallTimer
+        $window.Title = "DSP WSL Manager"
+        Set-ButtonsEnabled $true
+        Update-PicoButton
+
+        if ($success) {
+            $script:dspDistro = $resultData
+            Refresh-Distros
+            $window.Topmost = $true; $window.Topmost = $false
+            Show-CustomDialog -Message "DSP distro is succesvol geïnstalleerd en gestart!`n`nGebruiker: student`nWachtwoord: student`nSystemd: ingeschakeld`nPico udev rule: ingesteld`nStandaard distro: ja`n`nGeïnstalleerde tools:`n- Pico SDK (/opt/pico-sdk)`n- picotool (from source)`n- libusb-1.0`n- gcc-arm-none-eabi`n- cmake, build-essential" -Title "Installatie Voltooid" -Buttons "OK" -Type "Info"
+        } elseif ($errorMsg -eq "NO_NETWORK") {
+            Show-CustomDialog -Message "Geen internetverbinding gevonden.`n`nDe installatie heeft internet nodig om Ubuntu te downloaden.`nControleer je verbinding en probeer het opnieuw." -Title "Geen internet" -Buttons "OK" -Type "Warning"
+        } elseif ($errorMsg -eq "DISTRO_NOT_FOUND") {
+            Show-CustomDialog -Message "De distro is niet gevonden na installatie.`n`nMogelijk moet de computer opnieuw worden opgestart,`nof is er onvoldoende rechten/netwerkverbinding.`n`nControleer het logbestand voor details." -Title "Distro niet gevonden" -Buttons "OK" -Type "Warning"
+        } else {
+            Write-Log "Installatie mislukt: $errorMsg"
         }
     }
-    if (-not $launcherFound) {
-        Write-Log "Geen versioned Ubuntu launcher gevonden - wsl.conf + wsl-distribution.conf worden gebruikt."
-    }
-
-    # Terminate and restart so wsl.conf takes effect
-    Write-Log "WSL herstarten om configuratie toe te passen..."
-    & wsl --terminate $script:dspDistro 2>&1 | Out-Null
-    Start-Sleep -Seconds 2
-
-    # Set as default WSL distro
-    Write-Log "$($script:dspDistro) instellen als standaard WSL distro..."
-    & wsl --set-default $script:dspDistro 2>&1 | Out-Null
-
-    # Auto-start the distro so it's immediately ready
-    Write-Log "WSL distro starten..."
-    & wsl -d $script:dspDistro -- echo "WSL is gestart" 2>&1 | ForEach-Object {
-        Write-Log $_
-        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
-    }
-
-    Write-Log "Ubuntu 24.04 is geinstalleerd en gestart! (user: student / ww: student)"
-
-    # Re-enable buttons and restore title
-    Stop-InstallTimer
-    $window.Title = "DSP WSL Manager"
-    Set-ButtonsEnabled $true
-    Refresh-Distros
-
-    $window.Topmost = $true; $window.Topmost = $false
-    [System.Windows.MessageBox]::Show($window,
-        "DSP distro is succesvol geinstalleerd en gestart!`n`nGebruiker: student`nWachtwoord: student`nSystemd: ingeschakeld`nPico udev rule: ingesteld`nStandaard distro: ja`n`nGeinstalleerde tools:`n- Pico SDK (/opt/pico-sdk)`n- picotool (from source)`n- libusb-1.0`n- gcc-arm-none-eabi`n- cmake, build-essential",
-        "Installatie Voltooid",
-        [System.Windows.MessageBoxButton]::OK,
-        [System.Windows.MessageBoxImage]::Information
-    )
 })
 
 # Button: Start WSL (background, no terminal window)
@@ -1078,7 +2029,6 @@ $btnStop.Add_Click({
     }
 
     Write-Log "'$distroName' stoppen..."
-    $txtStatus.Text = "'$distroName' stoppen..."
     $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
     & wsl --terminate $distroName 2>&1 | Out-Null
     Write-Log "'$distroName' is gestopt."
@@ -1089,12 +2039,7 @@ $btnStop.Add_Click({
 $btnTerminal.Add_Click({
     $projectPath = Get-ProjectPath
     if (-not $projectPath) {
-        [System.Windows.MessageBox]::Show($window,
-            "Haal eerst het DSP project op via 'DSP Project Ophalen'.",
-            "Project niet gevonden",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "Haal eerst het DSP project op via 'DSP Project Ophalen'." -Title "Project niet gevonden" -Buttons "OK" -Type "Warning"
         return
     }
 
@@ -1132,28 +2077,18 @@ $btnPico.Add_Click({
     # Step 1: Check if usbipd is installed
     $usbipd = Get-Command usbipd.exe -ErrorAction SilentlyContinue
     if (-not $usbipd) {
-        $installResult = [System.Windows.MessageBox]::Show($window,
-            "usbipd-win is niet geinstalleerd.`nDit is nodig om USB-apparaten aan WSL te koppelen.`n`nWil je usbipd-win nu installeren via winget?",
-            "usbipd-win niet gevonden",
-            [System.Windows.MessageBoxButton]::YesNo,
-            [System.Windows.MessageBoxImage]::Question
-        )
-        if ($installResult -eq [System.Windows.MessageBoxResult]::Yes) {
+        $installResult = Show-CustomDialog -Message "usbipd-win is niet geïnstalleerd.`nDit is nodig om USB-apparaten aan WSL te koppelen.`n`nWil je usbipd-win nu installeren via winget?" -Title "usbipd-win niet gevonden" -Buttons "YesNo" -Type "Question"
+        if ($installResult -eq "Yes") {
             Write-Log "usbipd-win installeren via winget..."
             & winget install --id dorssel.usbipd-win --accept-source-agreements --accept-package-agreements 2>&1 | ForEach-Object {
-                Write-Log $_
+                Write-Console $_
                 $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
             }
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
             $usbipd = Get-Command usbipd.exe -ErrorAction SilentlyContinue
             if (-not $usbipd) {
                 Write-Log "usbipd-win installatie mislukt of herstart nodig."
-                [System.Windows.MessageBox]::Show($window,
-                    "usbipd-win kon niet gevonden worden na installatie.`nHerstart de PC en probeer het opnieuw.",
-                    "Herstart nodig",
-                    [System.Windows.MessageBoxButton]::OK,
-                    [System.Windows.MessageBoxImage]::Warning
-                )
+                Show-CustomDialog -Message "usbipd-win kon niet gevonden worden na installatie.`nHerstart de PC en probeer het opnieuw." -Title "Herstart nodig" -Buttons "OK" -Type "Warning"
                 return
             }
         } else {
@@ -1175,12 +2110,7 @@ $btnPico.Add_Click({
     $picoLines = $connectedPart -split "`r?`n" | Where-Object { $_ -match "2e8a|RP2040|RP2350|Raspberry Pi|Pico" }
 
     if ($picoLines.Count -eq 0) {
-        [System.Windows.MessageBox]::Show($window,
-            "Geen Raspberry Pi Pico gevonden.`n`nZorg dat de Pico via USB is aangesloten.`nHoud BOOTSEL ingedrukt bij het aansluiten voor programmeer-modus.",
-            "Pico niet gevonden",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "Geen Raspberry Pi Pico gevonden.`n`nZorg dat de Pico via USB is aangesloten.`nHoud BOOTSEL ingedrukt bij het aansluiten voor programmeer-modus." -Title "Pico niet gevonden" -Buttons "OK" -Type "Warning"
         Write-Log "Geen Pico gevonden."
         return
     }
@@ -1310,38 +2240,23 @@ $btnPico.Add_Click({
     if ($devStatus -eq "Shared") {
         Write-Log "Tussenstand gedetecteerd (Shared). Forceer unbind (admin rechten nodig)..."
         $lines = Invoke-Elevated "usbipd unbind $idFlag $devId"
-        foreach ($line in $lines) { Write-Log $line }
+        foreach ($line in $lines) { Write-Console $line }
 
-        [System.Windows.MessageBox]::Show($window,
-                "De Pico had een verbindingsfout (wel gereserveerd, maar niet verbonden).`n`nHet apparaat is nu volledig ontkoppeld en gereset.`n`nKlik nogmaals op de knop om de Pico schoon te koppelen.",
-                "Pico Hersteld",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Information
-        )
+        Show-CustomDialog -Message "De Pico had een verbindingsfout (wel gereserveerd, maar niet verbonden).`n`nHet apparaat is nu volledig ontkoppeld en gereset.`n`nKlik nogmaals op de knop om de Pico schoon te koppelen." -Title "Pico Hersteld" -Buttons "OK" -Type "Info"
         Update-PicoButton
         return
     }
 
     # LOGICA 2: Geheel Gekoppeld
     elseif ($devStatus -eq "Attached") {
-        $detachResult = [System.Windows.MessageBox]::Show($window,
-            "Pico is momenteel GEHEEL GEKOPPELD aan WSL.`n`nID: $devId`n$picoDesc`n`nWil je de Pico ontkoppelen?",
-            "Pico Ontkoppelen",
-            [System.Windows.MessageBoxButton]::YesNo,
-            [System.Windows.MessageBoxImage]::Question
-        )
-        if ($detachResult -eq [System.Windows.MessageBoxResult]::Yes) {
+        $detachResult = Show-CustomDialog -Message "Pico is momenteel GEHEEL GEKOPPELD aan WSL.`n`nID: $devId`n$picoDesc`n`nWil je de Pico ontkoppelen?" -Title "Pico Ontkoppelen" -Buttons "YesNo" -Type "Question"
+        if ($detachResult -eq "Yes") {
             Write-Log "Pico ontkoppelen en vrijgeven (admin rechten nodig)..."
             $lines = Invoke-Elevated "usbipd unbind $idFlag $devId"
-            foreach ($line in $lines) { Write-Log $line }
+            foreach ($line in $lines) { Write-Console $line }
             Write-Log "Pico is ontkoppeld."
             $btnPico.Content = "$picoIcon Pico koppelen"
-            [System.Windows.MessageBox]::Show($window,
-                "Pico is ontkoppeld van WSL.`nHet apparaat is weer beschikbaar voor Windows.",
-                "Pico Ontkoppeld",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Information
-            )
+            Show-CustomDialog -Message "Pico is ontkoppeld van WSL.`nHet apparaat is weer beschikbaar voor Windows." -Title "Pico Ontkoppeld" -Buttons "OK" -Type "Info"
         }
         Update-PicoButton
         return
@@ -1349,14 +2264,9 @@ $btnPico.Add_Click({
 
     # LOGICA 3: Totaal Ontkoppeld
     elseif ($devStatus -eq "Not shared") {
-        $attachResult = [System.Windows.MessageBox]::Show($window,
-            "Pico gevonden (TOTAAL ONTKOPPELD).`n`nID: $devId`n$picoDesc`n`nWil je dit apparaat koppelen aan WSL?",
-            "Pico Koppelen",
-            [System.Windows.MessageBoxButton]::YesNo,
-            [System.Windows.MessageBoxImage]::Question
-        )
+        $attachResult = Show-CustomDialog -Message "Pico gevonden (TOTAAL ONTKOPPELD).`n`nID: $devId`n$picoDesc`n`nWil je dit apparaat koppelen aan WSL?" -Title "Pico Koppelen" -Buttons "YesNo" -Type "Question"
 
-        if ($attachResult -ne [System.Windows.MessageBoxResult]::Yes) {
+        if ($attachResult -ne "Yes") {
             Write-Log "Koppelen geannuleerd."
             return
         }
@@ -1364,7 +2274,7 @@ $btnPico.Add_Click({
         # Bind (met force) en Attach (met wsl flag)
         Write-Log "Pico binden (admin rechten nodig): $idFlag $devId..."
         $lines = Invoke-Elevated "usbipd bind $idFlag $devId --force"
-        foreach ($line in $lines) { Write-Log $line }
+        foreach ($line in $lines) { Write-Console $line }
         Start-Sleep -Seconds 1
         Write-Log "Pico auto-koppelen aan WSL (background proces)..."
         Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $idFlag $devId --auto-attach" -WindowStyle Hidden
@@ -1378,45 +2288,50 @@ $btnPico.Add_Click({
         if ($picoFound) {
             Write-Log "Pico zichtbaar in WSL (lsusb bevestigd)."
             $btnPico.Content = "$picoIcon Pico ontkoppelen"
-            [System.Windows.MessageBox]::Show($window,
-                "Pico is succesvol gekoppeld aan WSL!`n`nHet apparaat is nu beschikbaar in de WSL-omgeving.",
-                "Pico Gekoppeld",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Information
-            )
+            Show-CustomDialog -Message "Pico is succesvol gekoppeld aan WSL!`n`nHet apparaat is nu beschikbaar in de WSL-omgeving." -Title "Pico Gekoppeld" -Buttons "OK" -Type "Info"
         } else {
             Write-Log "Pico niet zichtbaar in WSL na attach."
-            [System.Windows.MessageBox]::Show($window,
-                "Pico is gekoppeld maar niet zichtbaar in WSL.`n`nMogelijk moet de WSL distro herstarten of ligt het aan de rechten.",
-                "Verificatie mislukt",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Warning
-            )
+            Show-CustomDialog -Message "Pico is gekoppeld maar niet zichtbaar in WSL.`n`nMogelijk moet de WSL distro herstarten of ligt het aan de rechten." -Title "Verificatie mislukt" -Buttons "OK" -Type "Warning"
         }
         Update-PicoButton
     }
 })
 
 # Button: Clone DSP project repo
-$btnCloneRepo.Add_Click({
-    Write-Log "DSP Project ophalen..."
+# Button: Unlink project (ontkoppelen)
+$btnUnlinkProject.Add_Click({
+    $projectPath = Get-ProjectPath
+    if (-not $projectPath) {
+        Show-CustomDialog -Message "Er is momenteel geen project gekoppeld." -Title "Niets te ontkoppelen" -Buttons "OK" -Type "Info"
+        return
+    }
 
-    # Check if WSL distro is running
+    $result = Show-CustomDialog -Message "Wil je het project ontkoppelen?`n`nHuidige map: $projectPath`n`nDe bestanden worden niet verwijderd, alleen de koppeling wordt opgeheven." -Title "Project Ontkoppelen" -Buttons "YesNo" -Type "Question"
+
+    if ($result -eq "Yes") {
+        Remove-Item $configFile -ErrorAction SilentlyContinue
+        Write-Log "Project ontkoppeld: $projectPath"
+        Update-TerminalButton
+        Update-ProjectInfo
+        Update-WorkflowContext
+    }
+})
+
+# Button: Link/clone project (koppelen)
+$btnCloneRepo.Add_Click({
+    Write-Log "DSP Project koppelen..."
+
+    # WSL moet draaien om te koppelen
     $wslCheck = (& wsl --list --verbose 2>&1 | Out-String) -replace '\x00', ''
     if (-not ($wslCheck -match "$([regex]::Escape($script:dspDistro))\s+Running")) {
-        [System.Windows.MessageBox]::Show($window,
-            "WSL is niet actief.`nStart eerst de WSL via de 'Start WSL' knop.",
-            "WSL niet actief",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "WSL is niet actief.`nStart eerst de WSL via de 'Start WSL' knop voordat je een project koppelt." -Title "WSL niet actief" -Buttons "OK" -Type "Warning"
         return
     }
 
     # Open folder picker dialog
     Add-Type -AssemblyName System.Windows.Forms
     $folderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
-    $folderDialog.Description = "Kies een map om het DSP project in op te slaan"
+    $folderDialog.Description = "Kies een map met (of voor) het DSP project"
     $folderDialog.ShowNewFolderButton = $true
 
     if ($folderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
@@ -1425,20 +2340,37 @@ $btnCloneRepo.Add_Click({
     }
 
     $targetFolder = $folderDialog.SelectedPath
-    $projectFolder = Join-Path $targetFolder "avd-dsp-project"
 
-    # Check if folder already exists
+    # Detecteer of de geselecteerde map zelf al het project is
+    $selectedName = Split-Path $targetFolder -Leaf
+    if ($selectedName -eq "avd-dsp-project") {
+        $projectFolder = $targetFolder
+        $targetFolder = Split-Path $targetFolder -Parent
+    } else {
+        $projectFolder = Join-Path $targetFolder "avd-dsp-project"
+    }
+
+    # Check if folder already has project data
     if (Test-Path $projectFolder) {
-        $overwrite = [System.Windows.MessageBox]::Show($window,
-            "De map 'avd-dsp-project' bestaat al in:`n$targetFolder`n`nWil je de bestaande map verwijderen en opnieuw ophalen?",
-            "Map bestaat al",
-            [System.Windows.MessageBoxButton]::YesNo,
-            [System.Windows.MessageBoxImage]::Warning
-        )
-        if ($overwrite -ne [System.Windows.MessageBoxResult]::Yes) {
-            Write-Log "Clone geannuleerd."
+        $choice = Show-CustomDialog -Message "De map 'avd-dsp-project' bestaat al in:`n$targetFolder`n`nWil je de bestaande data gebruiken?`n`n- Ja: Bestaande project koppelen (geen download)`n- Nee: Alles overschrijven met een verse kopie van GitHub" -Title "Project gevonden" -Buttons "YesNo" -Type "Question"
+
+        if ($choice -eq "Cancel") {
+            Write-Log "Koppelen geannuleerd."
             return
         }
+
+        if ($choice -eq "Yes") {
+            # Bestaande data gebruiken
+            Save-ProjectPath $projectFolder
+            Update-TerminalButton
+            Update-ProjectInfo
+            Update-WorkflowContext
+            Write-Log "Bestaand project gekoppeld: $projectFolder"
+            Show-CustomDialog -Message "Project gekoppeld!`n`nLocatie: $projectFolder" -Title "Project Gekoppeld" -Buttons "OK" -Type "Info"
+            return
+        }
+
+        # Nee gekozen — overschrijven met verse clone
         Write-Log "Bestaande map verwijderen..."
         Remove-Item -Path $projectFolder -Recurse -Force
     }
@@ -1449,39 +2381,41 @@ $btnCloneRepo.Add_Click({
 
     Write-Log "Clonen naar: $projectFolder"
     Write-Log "WSL pad: $wslTargetPath"
-    $txtStatus.Text = "DSP project ophalen..."
-    $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+    Write-Log "DSP project ophalen van GitHub..."
+    Set-ButtonsEnabled $false
 
-    # Clone via WSL git with progress (no git needed on Windows)
-    & wsl -d $script:dspDistro -- git clone --progress https://github.com/dkroeske/avd-dsp-project.git "$wslTargetPath/avd-dsp-project" 2>&1 | ForEach-Object {
-        $line = "$_"
-        # Extract percentage from git progress lines (e.g. "Receiving objects:  45% (123/456)")
-        if ($line -match "(\d+)%") {
-            $txtStatus.Text = "DSP project ophalen... $($Matches[1])%"
+    # Sla projectFolder op in script-scope zodat OnComplete het kan vinden
+    $script:pendingProjectFolder = $projectFolder
+
+    Start-BackgroundTask -Parameters @{ dspDistro = $script:dspDistro; wslTargetPath = $wslTargetPath } -Work {
+        param($sync, $params)
+        & wsl -d $params.dspDistro -- git clone --progress https://github.com/dkroeske/avd-dsp-project.git "$($params.wslTargetPath)/avd-dsp-project" 2>&1 | ForEach-Object {
+            $line = "$_"
+            if ($line -match "(\d+)%") {
+                BG-StatusBar "DSP project ophalen... $($Matches[1])%"
+            }
+            BG-Console $line
         }
-        Write-Log $line
-        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
-    }
-    $txtStatus.Text = "Gereed."
-
-    if (Test-Path $projectFolder) {
-        Save-ProjectPath $projectFolder
-        Update-TerminalButton
-        Write-Log "DSP project succesvol opgehaald naar: $projectFolder"
-        [System.Windows.MessageBox]::Show($window,
-            "DSP project is opgehaald!`n`nLocatie: $projectFolder`n`nDe 'Open Terminal' knop opent nu in deze map.",
-            "Project Opgehaald",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Information
-        )
-    } else {
-        Write-Log "Clone lijkt mislukt - map niet gevonden."
-        [System.Windows.MessageBox]::Show($window,
-            "Het ophalen van het project is mislukt.`nControleer het logbestand voor details.",
-            "Clone Mislukt",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Error
-        )
+        BG-Status "DSP project ophalen voltooid."
+        $sync.Success = $true
+        $sync.Done = $true
+    } -OnComplete {
+        param($success, $errorMsg, $resultData)
+        Set-ButtonsEnabled $true
+        Update-PicoButton
+        $pf = $script:pendingProjectFolder
+        if ($pf -and (Test-Path $pf)) {
+            Save-ProjectPath $pf
+            Update-TerminalButton
+            Update-ProjectInfo
+            Update-WorkflowContext
+            Write-Log "DSP project succesvol opgehaald naar: $pf"
+            Show-CustomDialog -Message "DSP project is opgehaald en gekoppeld!`n`nLocatie: $pf" -Title "Project Opgehaald" -Buttons "OK" -Type "Info"
+        } else {
+            Write-Log "Clone lijkt mislukt - map niet gevonden: $pf"
+            Show-CustomDialog -Message "Het ophalen van het project is mislukt.`nControleer het logbestand voor details." -Title "Clone Mislukt" -Buttons "OK" -Type "Error"
+        }
+        $script:pendingProjectFolder = $null
     }
 })
 
@@ -1489,12 +2423,7 @@ $btnCloneRepo.Add_Click({
 function Flash-Pico {
     $projectPath = Get-ProjectPath
     if (-not $projectPath) {
-        [System.Windows.MessageBox]::Show($window,
-            "Haal eerst het DSP project op via 'DSP Project Ophalen'.",
-            "Project niet gevonden",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "Haal eerst het DSP project op via 'DSP Project Ophalen'." -Title "Project niet gevonden" -Buttons "OK" -Type "Warning"
         return
     }
 
@@ -1505,24 +2434,14 @@ function Flash-Pico {
     }
 
     if (-not $uf2File) {
-        [System.Windows.MessageBox]::Show($window,
-            "Geen .uf2 bestand gevonden in de build directory.`nBuild eerst het project.",
-            "Geen firmware",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "Geen .uf2 bestand gevonden in de build directory.`nBuild eerst het project." -Title "Geen firmware" -Buttons "OK" -Type "Warning"
         return
     }
 
     # Check if Pico is connected and coupled to WSL
     $usbipdExe = Get-Command usbipd.exe -ErrorAction SilentlyContinue
     if (-not $usbipdExe) {
-        [System.Windows.MessageBox]::Show($window,
-            "usbipd is niet gevonden. Kan de Pico niet bereiken.",
-            "Fout",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Error
-        )
+        Show-CustomDialog -Message "usbipd is niet gevonden. Kan de Pico niet bereiken." -Title "Fout" -Buttons "OK" -Type "Error"
         return
     }
 
@@ -1552,12 +2471,7 @@ function Flash-Pico {
     }
 
     if ($attachedPicos.Count -eq 0) {
-        [System.Windows.MessageBox]::Show($window,
-            "Geen Pico gevonden die momenteel gekoppeld is aan WSL.`n`nKlik eerst op 'Pico koppelen' om de Pico met WSL te verbinden.",
-            "Pico niet gekoppeld",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "Geen Pico gevonden die momenteel gekoppeld is aan WSL.`n`nKlik eerst op 'Pico koppelen' om de Pico met WSL te verbinden." -Title "Pico niet gekoppeld" -Buttons "OK" -Type "Warning"
         return
     }
 
@@ -1635,6 +2549,15 @@ function Flash-Pico {
         $targetPico = $attachedPicos[$listBox.SelectedIndex]
     }
 
+    # Bevestiging vragen voordat we flashen
+    $confirmResult = Show-CustomDialog `
+        -Message "Weet je zeker dat je wilt flashen?`n`nPico: $($targetPico.Desc)`nID: $($targetPico.Id)`nFirmware: $($uf2File.Name)`n`nDe Pico wordt overschreven met de nieuwe firmware." `
+        -Title "Pico Flashen" -Buttons "YesNo" -Type "Warning"
+    if ($confirmResult -ne "Yes") {
+        Write-Log "Flash geannuleerd door gebruiker."
+        return
+    }
+
     # Temporarily detach other picos to avoid picotool confusion
     $detachedOthers = @()
     if ($attachedPicos.Count -gt 1) {
@@ -1655,9 +2578,8 @@ function Flash-Pico {
     }
 
     Write-Log "=== FLASH GESTART voor Pico $($targetPico.Id) ==="
-    $txtStatus.Text = "Pico flashen..."
+    Write-Log "Pico flashen..."
     Set-ButtonsEnabled $false
-    $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
 
     $uf2WinPath = $uf2File.FullName
     $uf2Drive = $uf2WinPath.Substring(0,1).ToLower()
@@ -1665,21 +2587,9 @@ function Flash-Pico {
 
     $devId = $targetPico.Id
     $idFlag = if ($devId -match "-" -and $devId.Length -gt 10) { "--guid" } else { "--busid" }
+    $needBootsel = ($targetPico.Desc -notmatch "Boot")
 
-    if ($targetPico.Desc -notmatch "Boot") {
-        Write-Log "Pico is in applicatie-modus. Herstarten naar BOOTSEL..."
-        & wsl -d $script:dspDistro -u root -- bash -c "export PICO_SDK_PATH=/opt/pico-sdk; picotool reboot -f -u" 2>&1 | Out-Null
-        
-        Write-Log "Wachten op USB reconnect van de Pico (BOOTSEL modus)..."
-        Start-Sleep -Seconds 3
-        
-        Write-Log "Pico opnieuw binden en koppelen (admin rechten nodig)..."
-        $lines = Invoke-Elevated "usbipd bind $idFlag $devId --force"
-        Start-Sleep -Seconds 1
-        Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $idFlag $devId --auto-attach" -WindowStyle Hidden
-        Start-Sleep -Seconds 2
-    }
-
+    # Write flash script to temp file before starting background task
     $flashScript = @"
 #!/bin/bash
 export PICO_SDK_PATH=/opt/pico-sdk
@@ -1704,56 +2614,100 @@ fi
     $flashDrive = $tempFlash.Substring(0,1).ToLower()
     $wslFlashPath = "/mnt/$flashDrive" + ($tempFlash.Substring(2) -replace '\\', '/')
 
-    $flashSuccess = $false
-    & wsl -d $script:dspDistro -u root -- bash "$wslFlashPath" 2>&1 | ForEach-Object {
-        Write-Log $_
-        if ($_ -match "FLASH_COMPLETE") { $flashSuccess = $true }
-        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+    # Serialize detachedOthers for passing to runspace
+    $detachedSerialized = @()
+    foreach ($dev in $detachedOthers) {
+        $detachedSerialized += @{ Id = $dev.Id; Flag = $dev.Flag }
     }
-    Remove-Item $tempFlash -ErrorAction SilentlyContinue
 
-    if ($detachedOthers.Count -gt 0) {
-        Write-Log "Andere Pico's weer aankoppelen..."
-        $bindCmds = @()
-        foreach ($dev in $detachedOthers) {
-            $bindCmds += "usbipd bind $($dev.Flag) $($dev.Id) --force"
+    Start-BackgroundTask -Parameters @{
+        dspDistro = $script:dspDistro
+        wslFlashPath = $wslFlashPath
+        tempFlash = $tempFlash
+        devId = $devId
+        idFlag = $idFlag
+        needBootsel = $needBootsel
+        detachedOthers = $detachedSerialized
+    } -Work {
+        param($sync, $params)
+
+        # Helper: run elevated command (inline version for runspace)
+        function BG-Elevated {
+            param([string]$Command)
+            $outputFile = Join-Path $env:TEMP "wsl-admin-output-bg.txt"
+            $scriptFile = Join-Path $env:TEMP "wsl-admin-cmd-bg.ps1"
+            Remove-Item $outputFile -ErrorAction SilentlyContinue
+            $usbipdCmd = Get-Command usbipd.exe -ErrorAction SilentlyContinue
+            $cmdText = $Command
+            if ($usbipdCmd) { $cmdText = $cmdText -replace '\busbipd\b', "& '$($usbipdCmd.Source)'" }
+            $scriptContent = "try { `$output = $cmdText 2>&1 | Out-String; Set-Content -Path '$outputFile' -Value `$output -Encoding UTF8 } catch { Set-Content -Path '$outputFile' -Value `$_.Exception.Message -Encoding UTF8 }"
+            Set-Content -Path $scriptFile -Value $scriptContent -Encoding UTF8
+            $proc = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File `"$scriptFile`"" -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction SilentlyContinue
+            $result = ""; if (Test-Path $outputFile) { $result = Get-Content $outputFile -Raw -ErrorAction SilentlyContinue }
+            Remove-Item $scriptFile, $outputFile -ErrorAction SilentlyContinue
+            return $result
         }
-        Invoke-Elevated ($bindCmds -join "; ") | Out-Null
-        Start-Sleep -Seconds 1
-        foreach ($dev in $detachedOthers) {
-            Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $($dev.Flag) $($dev.Id) --auto-attach" -WindowStyle Hidden
+
+        if ($params.needBootsel) {
+            BG-Status "Pico is in applicatie-modus. Herstarten naar BOOTSEL..."
+            & wsl -d $params.dspDistro -u root -- bash -c "export PICO_SDK_PATH=/opt/pico-sdk; picotool reboot -f -u" 2>&1 | Out-Null
+
+            BG-Status "Wachten op USB reconnect van de Pico (BOOTSEL modus)..."
+            Start-Sleep -Seconds 3
+
+            BG-Status "Pico opnieuw binden en koppelen (admin rechten nodig)..."
+            BG-Elevated "usbipd bind $($params.idFlag) $($params.devId) --force" | Out-Null
+            Start-Sleep -Seconds 1
+            Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $($params.idFlag) $($params.devId) --auto-attach" -WindowStyle Hidden
+            Start-Sleep -Seconds 2
         }
+
+        $flashSuccess = $false
+        & wsl -d $params.dspDistro -u root -- bash $params.wslFlashPath 2>&1 | ForEach-Object {
+            $line = "$_"
+            if ($line -match '>>>\s*(.+)') { BG-Status ($Matches[1].Trim()) }
+            BG-Console $line
+            if ($line -match "FLASH_COMPLETE") { $flashSuccess = $true }
+        }
+        Remove-Item $params.tempFlash -ErrorAction SilentlyContinue
+
+        if ($params.detachedOthers.Count -gt 0) {
+            BG-Status "Andere Pico's weer aankoppelen..."
+            $bindCmds = @()
+            foreach ($dev in $params.detachedOthers) {
+                $bindCmds += "usbipd bind $($dev.Flag) $($dev.Id) --force"
+            }
+            BG-Elevated ($bindCmds -join "; ") | Out-Null
+            Start-Sleep -Seconds 1
+            foreach ($dev in $params.detachedOthers) {
+                Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $($dev.Flag) $($dev.Id) --auto-attach" -WindowStyle Hidden
+            }
+        }
+
+        if ($flashSuccess) {
+            BG-Status "Wachten op herstart van de Pico naar applicatie-modus..."
+            Start-Sleep -Seconds 3
+            BG-Status "Pico opnieuw binden en koppelen (applicatie-modus)..."
+            BG-Elevated "usbipd bind $($params.idFlag) $($params.devId) --force" | Out-Null
+            Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $($params.idFlag) $($params.devId) --auto-attach" -WindowStyle Hidden
+        }
+
+        $sync.ResultData = $flashSuccess
+        $sync.Success = $flashSuccess
+        $sync.Done = $true
+    } -OnComplete {
+        param($success, $errorMsg, $resultData)
+        Set-ButtonsEnabled $true
         Update-PicoButton
-    }
+        Write-Log "=== FLASH AFGEROND ==="
 
-    Set-ButtonsEnabled $true
-    Write-Log "=== FLASH AFGEROND ==="
-
-    if ($flashSuccess) {
-        Write-Log "Wachten op herstart van de Pico naar applicatie-modus..."
-        Start-Sleep -Seconds 3
-        Write-Log "Pico opnieuw binden en koppelen (applicatie-modus)..."
-        $lines = Invoke-Elevated "usbipd bind $idFlag $devId --force"
-        Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $idFlag $devId --auto-attach" -WindowStyle Hidden
-        Update-PicoButton
-    }
-
-    if ($flashSuccess) {
-        $window.Topmost = $true; $window.Topmost = $false
-        [System.Windows.MessageBox]::Show($window,
-            "Firmware is succesvol geflasht naar de Pico!`n`nDe Pico is automatisch herstart.",
-            "Flash Voltooid",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Information
-        )
-    } else {
-        $window.Topmost = $true; $window.Topmost = $false
-        [System.Windows.MessageBox]::Show($window,
-            "Flash is mislukt.`n`nMogelijke oplossingen:`n- Houd BOOTSEL ingedrukt en sluit de Pico opnieuw aan`n- Controleer of de Pico gekoppeld is aan WSL`n- Bekijk het logvenster voor details",
-            "Flash Mislukt",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Error
-        )
+        if ($resultData) {
+            $window.Topmost = $true; $window.Topmost = $false
+            Show-CustomDialog -Message "Firmware is succesvol geflasht naar de Pico!`n`nDe Pico is automatisch herstart." -Title "Flash Voltooid" -Buttons "OK" -Type "Info"
+        } else {
+            $window.Topmost = $true; $window.Topmost = $false
+            Show-CustomDialog -Message "Flash is mislukt.`n`nMogelijke oplossingen:`n- Houd BOOTSEL ingedrukt en sluit de Pico opnieuw aan`n- Controleer of de Pico gekoppeld is aan WSL`n- Bekijk het logvenster voor details" -Title "Flash Mislukt" -Buttons "OK" -Type "Error"
+        }
     }
 }
 
@@ -1761,12 +2715,7 @@ fi
 $btnBuild.Add_Click({
     $projectPath = Get-ProjectPath
     if (-not $projectPath) {
-        [System.Windows.MessageBox]::Show($window,
-            "Haal eerst het DSP project op via 'DSP Project Ophalen'.",
-            "Project niet gevonden",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "Haal eerst het DSP project op via 'DSP Project Ophalen'." -Title "Project niet gevonden" -Buttons "OK" -Type "Warning"
         return
     }
 
@@ -1783,30 +2732,26 @@ $btnBuild.Add_Click({
     $drive = $projectPath.Substring(0,1).ToLower()
     $wslProjectPath = "/mnt/$drive" + ($projectPath.Substring(2) -replace '\\', '/')
 
-    $result = [System.Windows.MessageBox]::Show($window,
-        "DSP project builden?`n`nProject: $wslProjectPath`n`nDit voert de volgende stappen uit:`n- Git safe directory instellen`n- Submodules ophalen`n- CMake configuratie genereren`n- Project compileren (make -j8)`n`nDe interface reageert niet tijdens het builden.",
-        "Project Builden",
-        [System.Windows.MessageBoxButton]::YesNo,
-        [System.Windows.MessageBoxImage]::Question
-    )
+    $result = Show-CustomDialog -Message "DSP project build starten?`n`nProject: $wslProjectPath`n`nDit voert de volgende stappen uit:`n- Git safe directory instellen`n- Submodules ophalen`n- CMake configuratie genereren`n- Project compileren (make -j8)" -Title "Build Project" -Buttons "YesNo" -Type "Question"
 
-    if ($result -ne [System.Windows.MessageBoxResult]::Yes) {
+    if ($result -ne "Yes") {
         Write-Log "Build geannuleerd."
         return
     }
 
-    Set-ButtonsEnabled $false
+    $script:buildInProgress = $true
+    $btnBuild.IsEnabled = $false
+    $btnFlash.IsEnabled = $false
+    $btnBuild.Content = "`u{1F528} Builden..."
     $window.Title = "DSP WSL Manager - BEZIG MET BUILDEN..."
     Write-Log "=== BUILD GESTART ==="
-    $txtStatus.Text = "Project builden... (interface reageert niet)"
-    $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+    Write-Log "Build starten..."
 
     # Write build script to temp file
     $buildScript = @"
 #!/bin/bash
 set -e
 
-# Load PICO_SDK_PATH (set during WSL install in /etc/profile.d/)
 export PICO_SDK_PATH=/opt/pico-sdk
 echo ">>> PICO_SDK_PATH=`$PICO_SDK_PATH"
 
@@ -1841,56 +2786,36 @@ echo ">>> BUILD VOLTOOID"
     $wslTempPath = "/mnt/$driveTmp" + ($tempFile.Substring(2) -replace '\\', '/')
 
     Write-Log "Build script: $wslTempPath"
-    $buildSuccess = $false
-    & wsl -d $script:dspDistro -u root -- bash "$wslTempPath" 2>&1 | ForEach-Object {
-        Write-Log $_
-        if ($_ -match "BUILD VOLTOOID") { $buildSuccess = $true }
-        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
-    }
-    Remove-Item $tempFile -ErrorAction SilentlyContinue
 
-    $window.Title = "DSP WSL Manager"
-    Set-ButtonsEnabled $true
-    Update-TerminalButton
-    Write-Log "=== BUILD AFGEROND ==="
-
-    if ($buildSuccess) {
-        # Find the .uf2 file in the build directory
-        $uf2File = $null
-        $buildDir = Join-Path $projectPath "build"
-        if (Test-Path $buildDir) {
-            $uf2File = Get-ChildItem -Path $buildDir -Filter "*.uf2" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    Start-BackgroundTask -Parameters @{ dspDistro = $script:dspDistro; wslTempPath = $wslTempPath; tempFile = $tempFile } -Work {
+        param($sync, $params)
+        $buildSuccess = $false
+        & wsl -d $params.dspDistro -u root -- bash $params.wslTempPath 2>&1 | ForEach-Object {
+            $line = "$_"
+            if ($line -match '>>>\s*(.+)') { BG-Status ($Matches[1].Trim()) }
+            BG-Console $line
+            if ($line -match "BUILD VOLTOOID") { $buildSuccess = $true }
         }
+        Remove-Item $params.tempFile -ErrorAction SilentlyContinue
+        $sync.ResultData = $buildSuccess
+        $sync.Success = $buildSuccess
+        $sync.Done = $true
+    } -OnComplete {
+        param($success, $errorMsg, $resultData)
+        $script:buildInProgress = $false
+        $btnBuild.Content = "`u{1F528} Build Project"
+        $window.Title = "DSP WSL Manager"
+        Update-TerminalButton
+        Update-PicoButton
+        Write-Log "=== BUILD AFGEROND ==="
 
-        if ($uf2File) {
-            Write-Log "UF2 gevonden: $($uf2File.FullName)"
-            $flashResult = [System.Windows.MessageBox]::Show($window,
-                "Project is succesvol gebuild!`n`nUF2 bestand: $($uf2File.Name)`n`nWil je de firmware nu naar de Pico flashen?",
-                "Build Voltooid - Flashen?",
-                [System.Windows.MessageBoxButton]::YesNo,
-                [System.Windows.MessageBoxImage]::Question
-            )
-
-            if ($flashResult -eq [System.Windows.MessageBoxResult]::Yes) {
-                Flash-Pico
-            }
+        if ($resultData) {
+            $window.Topmost = $true; $window.Topmost = $false
+            Show-CustomDialog -Message "Project is succesvol gebuild!`n`nBuild bestanden staan in:`n$projectPath\build" -Title "Build Voltooid" -Buttons "OK" -Type "Info"
         } else {
             $window.Topmost = $true; $window.Topmost = $false
-            [System.Windows.MessageBox]::Show($window,
-                "Project is succesvol gebuild!`n`nGeen .uf2 bestand gevonden in de build directory.`nBuild bestanden staan in:`n$projectPath\build",
-                "Build Voltooid",
-                [System.Windows.MessageBoxButton]::OK,
-                [System.Windows.MessageBoxImage]::Information
-            )
+            Show-CustomDialog -Message "Build is mislukt.`nControleer het logvenster of het logbestand voor details." -Title "Build Mislukt" -Buttons "OK" -Type "Error"
         }
-    } else {
-        $window.Topmost = $true; $window.Topmost = $false
-        [System.Windows.MessageBox]::Show($window,
-            "Build is mislukt.`nControleer het logvenster of het logbestand voor details.",
-            "Build Mislukt",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Error
-        )
     }
 })
 
@@ -1898,12 +2823,7 @@ echo ">>> BUILD VOLTOOID"
 $btnRemove.Add_Click({
     $selected = $dgDistros.SelectedItem
     if (-not $selected) {
-        [System.Windows.MessageBox]::Show($window,
-            "Selecteer eerst een distro in de lijst.",
-            "Geen selectie",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "Selecteer eerst een distro in de lijst." -Title "Geen selectie" -Buttons "OK" -Type "Warning"
         return
     }
 
@@ -1911,25 +2831,15 @@ $btnRemove.Add_Click({
 
     # Prevent removing docker distros
     if ($distroName -match "docker") {
-        [System.Windows.MessageBox]::Show($window,
-            "Docker distro's kunnen niet via deze tool verwijderd worden.",
-            "Niet toegestaan",
-            [System.Windows.MessageBoxButton]::OK,
-            [System.Windows.MessageBoxImage]::Warning
-        )
+        Show-CustomDialog -Message "Docker distro's kunnen niet via deze tool verwijderd worden." -Title "Niet toegestaan" -Buttons "OK" -Type "Warning"
         return
     }
 
-    $result = [System.Windows.MessageBox]::Show($window,
-        "Weet je zeker dat je '$distroName' wilt verwijderen?`n`nALLE DATA IN DEZE DISTRO GAAT VERLOREN!`nDit kan niet ongedaan gemaakt worden!",
-        "Distro Verwijderen",
-        [System.Windows.MessageBoxButton]::YesNo,
-        [System.Windows.MessageBoxImage]::Warning
-    )
+    $result = Show-CustomDialog -Message "Weet je zeker dat je '$distroName' wilt verwijderen?`n`nALLE DATA IN DEZE DISTRO GAAT VERLOREN!`nDit kan niet ongedaan gemaakt worden!" -Title "Distro Verwijderen" -Buttons "YesNo" -Type "Warning"
 
-    if ($result -eq [System.Windows.MessageBoxResult]::Yes) {
+    if ($result -eq "Yes") {
         Write-Log "'$distroName' verwijderen..."
-        & wsl --unregister $distroName 2>&1 | ForEach-Object { Write-Log $_ }
+        & wsl --unregister $distroName 2>&1 | ForEach-Object { Write-Console $_ }
         Write-Log "'$distroName' is verwijderd."
         Refresh-Distros
     }
@@ -1942,12 +2852,17 @@ $btnFlash.Add_Click({
 
 # Houd bij welke Pico's in deze sessie verbonden zijn (geweest)
 $script:activePicos = @()
+$script:buildInProgress = $false
 
 # Helper: check WSL running state and Pico attach status
 function Update-PicoButton {
     try {
+        # Niet aanraken als er een build/flash bezig is
+        if ($script:buildInProgress) { return }
+
         if (-not $script:wslInstalled) {
             $btnPico.IsEnabled = $false
+            $btnFlash.IsEnabled = $false
             $btnPico.Content = "$picoIcon Pico (WSL uit)"
             $dgPicos.Items.Clear()
             return
@@ -1958,6 +2873,7 @@ function Update-PicoButton {
 
         if (-not $isRunning) {
             $btnPico.IsEnabled = $false
+            $btnFlash.IsEnabled = $false
             $btnPico.Content = "$picoIcon Pico (WSL uit)"
             $dgPicos.Items.Clear()
             return
@@ -2008,7 +2924,9 @@ function Update-PicoButton {
             }
 
             $picoLine = $picoLinesAll | Select-Object -First 1
-            
+            $hasAttachedPico = $picoLinesAll | Where-Object { $_ -match "Attached" }
+            $btnFlash.IsEnabled = [bool]$hasAttachedPico
+
             # Dynamic button text based on status
             if ($picoLine -and $picoLine -match "Attached") {
                 $btnPico.Content = "$picoIcon Pico ontkoppelen"
@@ -2021,6 +2939,7 @@ function Update-PicoButton {
             }
         } else {
             $btnPico.Content = "$picoIcon Pico koppelen"
+            $btnFlash.IsEnabled = $false
             $dgPicos.Items.Clear()
         }
     } catch {
@@ -2031,7 +2950,7 @@ function Update-PicoButton {
 # Periodic timer: check WSL and Pico status every 5 seconds
 $statusTimer = New-Object System.Windows.Threading.DispatcherTimer
 $statusTimer.Interval = [TimeSpan]::FromSeconds(5)
-$statusTimer.Add_Tick({ Update-PicoButton })
+$statusTimer.Add_Tick({ Update-PicoButton; Update-WorkflowContext; Update-ProjectInfo; Update-TerminalButton })
 $statusTimer.Start()
 
 # Initial load — clear previous session logs
@@ -2043,43 +2962,149 @@ Write-Log "Logbestand: $logFile"
 Set-ButtonsEnabled $false
 $txtStatus.Text = "Systeem controleren..."
 
-# Use Loaded event to run checks after window is visible
-$window.Add_ContentRendered({
-    $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+# Helper: update a checklist item with checkmark or cross
+function Set-CheckItem {
+    param($Control, [string]$Text, [bool]$Ok, [string]$Detail = "")
+    $icon = if ($Ok) { [char]0x2705 } else { [char]0x274C }
+    $suffix = if ($Detail) { " - $Detail" } else { "" }
+    $Control.Text = "$icon $Text$suffix"
+    $Control.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom($(if ($Ok) { "#a6e3a1" } else { "#f38ba8" }))
+}
 
-    # Now run the slow checks (systeminfo etc.)
-    Write-Log "WSL status controleren..."
-    $script:wslState = Test-WslState
-    $script:wslInstalled = $script:wslState.ok
+# Loading checks run as a stepped state machine via DispatcherTimer
+# Each tick = one check step, so the UI renders between steps
+$script:loadStep = 0
+$script:loadSavedProject = $null
+$script:loadDistroFound = $false
 
-    $script:dspDistro = Find-UbuntuDistro
-    if (-not $script:dspDistro) { $script:dspDistro = "Ubuntu-24.04" }
+# PreviewKeyDown handler for dismissing loading screen (defined at script scope so self-reference works)
+$script:loadHintShownAt = [DateTime]::MinValue
+$script:loadDismissHandler = [System.Windows.Input.KeyEventHandler]{
+    # Only accept keypress if hint has been visible for at least 500ms (ignore stale events)
+    if ($script:loadStep -eq 7 -and ($_.Key -eq "Return" -or $_.Key -eq "Space") -and
+        ([DateTime]::Now - $script:loadHintShownAt).TotalMilliseconds -gt 500) {
+        $_.Handled = $true
+        $script:loadStep = 8  # prevent double-fire
+        $window.Remove_PreviewKeyDown($script:loadDismissHandler)
 
-    Update-WslPresence
-    if ($script:wslInstalled) {
-        Write-Log "WSL gedetecteerd. Distro: $($script:dspDistro)"
-        $savedProject = Get-ProjectPath
-        if ($savedProject) {
-            Write-Log "DSP project gevonden: $savedProject"
-        } else {
-            Write-Log "Geen DSP project geconfigureerd."
+        # Swap panels — main UI is already initialized, so instant
+        $pnlLoading.Visibility = "Collapsed"
+        $pnlMainContent.Visibility = "Visible"
+
+        # Check for updates after loading
+        try { Check-ForUpdates } catch { Write-Log "Update check overgeslagen: $_" }
+    }
+}
+$window.Add_PreviewKeyDown($script:loadDismissHandler)
+
+$loadTimer = New-Object System.Windows.Threading.DispatcherTimer
+$loadTimer.Interval = [TimeSpan]::FromMilliseconds(350)
+$loadTimer.Add_Tick({
+    switch ($script:loadStep) {
+        0 {
+            # Step 1: Virtualization check
+            $vtOk = $true
+            try {
+                $sysInfo = systeminfo 2>&1 | Out-String
+                if ($sysInfo -match "Virtuali[sz]ati.*firmware.*:\s*(No|Nee)\b") { $vtOk = $false }
+                if ($sysInfo -match "hypervisor.*detected|Er is een hypervisor gedetecteerd") { $vtOk = $true }
+            } catch {}
+            Set-CheckItem $chkVirtualization "Virtualisatie controleren" $vtOk $(if ($vtOk) { "OK" } else { "VT-x/AMD-V staat uit in BIOS" })
+            $script:loadStep = 1
         }
-        Refresh-Distros
-        Update-PicoButton
-        Update-TerminalButton
-    } else {
-        Write-Log "WSL is niet actief (niet geinstalleerd of herstart nodig)."
+        1 {
+            # Step 2: WSL status
+            $script:wslState = Test-WslState
+            $script:wslInstalled = $script:wslState.ok
+            $wslDetail = if ($script:wslInstalled) { "OK" } else { $script:wslState.reason -replace "`n.*", "" }
+            Set-CheckItem $chkWsl "WSL status controleren" $script:wslInstalled $wslDetail
+            $script:loadStep = 2
+        }
+        2 {
+            # Step 3: Distro detection
+            $script:dspDistro = Find-UbuntuDistro
+            if (-not $script:dspDistro) { $script:dspDistro = "Ubuntu-24.04" }
+            $script:loadDistroFound = $script:wslInstalled -and (Find-UbuntuDistro)
+            Set-CheckItem $chkDistro "Distro detecteren" $script:loadDistroFound $(if ($script:loadDistroFound) { $script:dspDistro } else { "Geen Ubuntu distro gevonden" })
+            $script:loadStep = 3
+        }
+        3 {
+            # Step 4: Project check
+            $script:loadSavedProject = Get-ProjectPath
+            $projectOk = $null -ne $script:loadSavedProject
+            Set-CheckItem $chkProject "DSP project zoeken" $projectOk $(if ($projectOk) { $script:loadSavedProject } else { "Niet geconfigureerd" })
+            $script:loadStep = 4
+        }
+        4 {
+            # Step 5: USB-IPD check
+            $usbipdOk = $false
+            $usbipdDetail = "Niet geïnstalleerd"
+            try {
+                $usbipdExe = Get-Command usbipd.exe -ErrorAction SilentlyContinue
+                if ($usbipdExe) {
+                    $usbipdOk = $true
+                    $usbipdVer = (& usbipd --version 2>&1 | Out-String).Trim()
+                    if ($usbipdVer -match '[\d+\.[\d]+\.[\d]+[\-\.\d]*') {
+                        $usbipdVer = $Matches[0]
+                    }
+                    $usbipdDetail = if ($usbipdVer) { "v$usbipdVer" } else { "OK" }
+                }
+            } catch {}
+            Set-CheckItem $chkUsbipd "USB-IPD controleren" $usbipdOk $usbipdDetail
+            $script:loadStep = 5
+        }
+        5 {
+            # Step 6: Initialize main UI
+            Update-WslPresence
+            if ($script:wslInstalled) {
+                Write-Log "WSL gedetecteerd. Distro: $($script:dspDistro)"
+                if ($script:loadSavedProject) {
+                    Write-Log "DSP project gevonden: $($script:loadSavedProject)"
+                } else {
+                    Write-Log "Geen DSP project geconfigureerd."
+                }
+                Refresh-Distros
+                Update-PicoButton
+                Update-TerminalButton
+                Update-ProjectInfo
+                Update-WorkflowContext
+            } else {
+                Write-Log "WSL is niet actief (niet geïnstalleerd of niet draaiend)."
+            }
+            Set-ButtonsEnabled $true
+            Update-PicoButton
+            if (-not $script:wslInstalled) {
+                Write-Log $script:wslState.reason
+            } else {
+                Write-Log "Gereed."
+            }
+            $pnlLoading.Visibility = "Collapsed"
+            $pnlMainContent.Visibility = "Visible"
+            Set-CheckItem $chkInit "Interface voorbereiden" $true "OK"
+            $script:loadStep = 6
+        }
+        6 {
+            $loadTimer.Stop()
+            $txtLoadingHint.Text = "Druk op Enter of Spatie om door te gaan"
+            $window.Activate()
+            [System.Windows.Input.Keyboard]::Focus($window)
+            $script:loadHintShownAt = [DateTime]::Now
+            $script:loadStep = 7
+        }
     }
-    Set-ButtonsEnabled $true
-    if (-not $script:wslInstalled) {
-        $txtStatus.Text = $script:wslState.reason
-    } else {
-        $txtStatus.Text = "Gereed."
-    }
+})
+
+# Start loading on ContentRendered
+$window.Add_ContentRendered({
+    $pnlLoading.Visibility = "Visible"
+    $pnlMainContent.Visibility = "Collapsed"
+    $txtStatus.Text = "Systeem controleren..."
+    $script:loadStep = 0
+    $loadTimer.Start()
 })
 
 # Show window
 $window.ShowDialog() | Out-Null
 
-# Cleanup: stop timer when window closes
+# Cleanup: stop timers when window closes
 $statusTimer.Stop()
