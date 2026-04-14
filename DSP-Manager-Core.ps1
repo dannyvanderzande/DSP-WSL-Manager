@@ -1512,6 +1512,15 @@ function Get-GitBlobSha {
 }
 
 function Check-ForUpdates {
+    param([switch]$Manual)
+
+    # Bypass: als update-bypass bestand bestaat, sla automatische check over
+    $bypassFile = Join-Path $scriptDir "update-bypass"
+    if (-not $Manual -and (Test-Path $bypassFile)) {
+        Write-Log "Update check overgeslagen (update-bypass bestand gevonden)"
+        return
+    }
+
     Write-Log "Updates controleren..."
     $script:updateAvailable = $false
     $script:updateFiles = @()
@@ -1624,7 +1633,7 @@ $script:doUpdateCheck = {
     if ($script:updateAvailable) {
         Install-Updates
     } else {
-        Check-ForUpdates
+        Check-ForUpdates -Manual
         if (-not $script:updateAvailable) {
             Show-CustomDialog -Message "Alles is up-to-date!" -Title "Geen Updates" -Buttons "OK" -Type "Success"
         } else {
