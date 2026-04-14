@@ -11,7 +11,7 @@ De DSP WSL Manager automatiseert het opzetten van een complete Linux-ontwikkelom
 Download de volgende bestanden en plaats ze in dezelfde map:
 
 - **`DSP-Manager-Core.ps1`** — het hoofdscript
-- **`Start DSP Manager.exe`** — de launcher om de tool te starten
+- **`Start DSP Manager.bat`** — de launcher om de tool te starten
 
 ---
 
@@ -19,7 +19,7 @@ Download de volgende bestanden en plaats ze in dezelfde map:
 
 ### Stap 1 — Tool openen
 
-Dubbelklik op **`Start DSP Manager.exe`**. De tool controleert automatisch of je systeem klaar is. Wordt de `.exe` geblokkeerd? Download dan `support scripts\Start DSP Manager.bat` en plaats deze in dezelfde map. Draai vervolgens de .bat file.
+Dubbelklik op **`Start DSP Manager.bat`**. De tool controleert automatisch of je systeem klaar is.
 
 ### Stap 2 — WSL installeren (eenmalig)
 
