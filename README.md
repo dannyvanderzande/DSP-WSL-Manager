@@ -35,7 +35,7 @@ Klik op **Koppelen** bij het DSP Project paneel en kies een map. Als de map al e
 
 ### Stap 5 — Bouwen
 
-Klik op **Build Project** om je code te compileren. Hiervoor is geen Pico nodig — alleen een gekoppeld project en een draaiende WSL distro.
+Klik op **Build Project** om je code te compileren. Hiervoor is geen Pico nodig — alleen een gekoppeld project en een draaiende WSL distro. De eerste build kan enkele minuten duren. De knop toont een timer zodat je kunt zien dat de build bezig is.
 
 ### Stap 6 — Pico aansluiten en flashen
 
