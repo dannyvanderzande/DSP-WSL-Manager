@@ -39,7 +39,7 @@ Sluit je Raspberry Pi Pico aan via USB. Klik op **Koppelen** in het Pico-paneel.
 
 ### Stap 6 — Bouwen en flashen
 
-Klik op **Project Builden** om je code te compileren. Klik daarna op **Flashen** om de firmware direct naar de Pico te sturen. De Pico wordt automatisch in de juiste modus gezet.
+Klik op **Build Project** om je code te compileren. Klik daarna op **Flash Pico** om de firmware naar de Pico te sturen. Er verschijnt een bevestigingsvraag voordat het flashen begint. De Pico wordt automatisch in de juiste modus gezet.
 
 ### Dagelijks gebruik
 
@@ -57,9 +57,9 @@ De bovenste sectie bevat de knoppen voor je dagelijks werk.
 
 **Open Terminal** opent een Linux-terminal (WSL) die direct in je projectmap start. Handig voor handmatige commando's, debugging of git-operaties.
 
-**Project Builden** voert een volledige build uit: git safe directories instellen, submodules ophalen, vorige build opruimen, CMake-configuratie genereren met de ARM-toolchain, en compileren met `make`. Het `.uf2` firmwarebestand verschijnt in de `build` map.
+**Build Project** voert een volledige build uit: git safe directories instellen, submodules ophalen, vorige build opruimen, CMake-configuratie genereren met de ARM-toolchain, en compileren met `make`. Het `.uf2` firmwarebestand verschijnt in de `build` map.
 
-**Flashen** stuurt het `.uf2` bestand naar de Pico. De tool zoekt het bestand automatisch, controleert of de Pico gekoppeld is, herstart naar BOOTSEL-modus indien nodig (via `picotool`), flasht de firmware en herstart de Pico. Bij meerdere gekoppelde Pico's verschijnt een selectiescherm.
+**Flash Pico** stuurt het `.uf2` bestand naar de Pico. Er verschijnt eerst een bevestigingsdialoog met de geselecteerde Pico en het firmwarebestand. De tool controleert of de Pico gekoppeld is, herstart naar BOOTSEL-modus indien nodig (via `picotool`), flasht de firmware en herstart de Pico. Bij meerdere gekoppelde Pico's verschijnt een selectiescherm. De Flash-knop is alleen klikbaar als `usbipd-win` geïnstalleerd is én er een Pico aan WSL gekoppeld is.
 
 ### WSL Distributies
 
@@ -71,7 +71,6 @@ Het middelste paneel toont alle geïnstalleerde WSL-distributies met hun status.
 | **Start** | Start de geselecteerde distro op de achtergrond |
 | **Stop** | Stopt de geselecteerde distro |
 | **Wis** | Verwijdert de geselecteerde distro (met bevestiging) |
-| **🔄** | Vernieuwt de lijst |
 
 Bij het aanmaken van een nieuwe distro wordt automatisch geïnstalleerd: gebruiker `student` (wachtwoord `student`), build tools (`cmake`, `gcc`, `git`), ARM cross-compiler (`gcc-arm-none-eabi`), Raspberry Pi Pico SDK inclusief TinyUSB, `picotool`, en USB-regels voor directe Pico-toegang.
 
@@ -83,16 +82,20 @@ Het onderste paneel toont aangesloten Pico's en hun koppelstatus. Klik op **Kopp
 
 Onderaan de tool staat een logvenster met real-time feedback. Alle regels worden ook opgeslagen in `WSL-Setup.log` voor troubleshooting.
 
+### Updates
+
+In de sidebar staat een **Check for updates** knop. Deze vergelijkt je lokale bestanden met de nieuwste versie op GitHub. Als er updates beschikbaar zijn, worden deze gedownload naar een `update` submap zodat je ze zelf kunt overnemen.
+
 ---
 
 ## Problemen oplossen
 
 | Probleem | Oplossing |
 |----------|-----------|
-| Tool start niet | Gebruik `support scripts\Start DSP Manager.bat` als alternatief |
+| Tool start niet | Controleer of `DSP-Manager-Core.ps1` en `Start DSP Manager.bat` in dezelfde map staan |
 | "WSL is niet geïnstalleerd" | Klik op "WSL Installeren" en herstart de computer |
 | "VM Platform mist" | Klik op de knop, herstart, en controleer of VT-x aan staat in het BIOS |
-| BIOS-virtualisatie uit | Herstart → BIOS openen (DEL/F2/F10) → Virtualization Technology inschakelen → opslaan |
+| BIOS-virtualisatie uit | Herstart, BIOS openen (DEL/F2/F10), Virtualization Technology inschakelen, opslaan |
 | Pico niet gevonden | Controleer de USB-kabel en sluit de Pico opnieuw aan |
 | Pico niet zichtbaar in WSL | Start WSL eerst via de Start-knop, koppel dan de Pico |
 | Build mislukt | Bekijk het logvenster voor foutmeldingen |
@@ -100,4 +103,4 @@ Onderaan de tool staat een logvenster met real-time feedback. Alle regels worden
 
 ---
 
-*Crafted by Danny van der Zande*
+*Crafted by Danny van der Zande — v2.0.0*
