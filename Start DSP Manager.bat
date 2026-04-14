@@ -1,4 +1,5 @@
 @echo off
+REM test-update-trigger
 title DSP Manager
 
 :: Start de applicatie onzichtbaar op de achtergrond
