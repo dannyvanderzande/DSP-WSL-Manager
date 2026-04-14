@@ -33,17 +33,17 @@ Klik op **Nieuw** bij het WSL Distributies paneel. Er wordt automatisch een Ubun
 
 Klik op **Koppelen** bij het DSP Project paneel en kies een map. Als de map al een `avd-dsp-project` folder bevat, wordt het bestaande project gekoppeld. Anders wordt de Git-repository automatisch van GitHub gekloond. De tool onthoudt de locatie.
 
-### Stap 5 — Pico aansluiten en koppelen
+### Stap 5 — Bouwen
 
-Sluit je Raspberry Pi Pico aan via USB. Klik op **Koppelen** in het Pico-paneel. De tool installeert `usbipd-win` automatisch als dat nodig is en koppelt de Pico aan WSL.
+Klik op **Build Project** om je code te compileren. Hiervoor is geen Pico nodig — alleen een gekoppeld project en een draaiende WSL distro.
 
-### Stap 6 — Bouwen en flashen
+### Stap 6 — Pico aansluiten en flashen
 
-Klik op **Build Project** om je code te compileren. Klik daarna op **Flash Pico** om de firmware naar de Pico te sturen. Er verschijnt een bevestigingsvraag voordat het flashen begint. De Pico wordt automatisch in de juiste modus gezet.
+Sluit je Raspberry Pi Pico aan via USB. Klik op **Koppelen** in het Pico-paneel. De tool installeert `usbipd-win` automatisch als dat nodig is en koppelt de Pico aan WSL. Klik daarna op **Flash Pico** om de firmware naar de Pico te sturen. Er verschijnt een bevestigingsvraag voordat het flashen begint. De Pico wordt automatisch in de juiste modus gezet.
 
 ### Dagelijks gebruik
 
-Na de eerste setup herhaal je alleen stap 5 en 6. De typische cyclus is: code schrijven → builden → flashen → testen.
+Na de eerste setup herhaal je alleen stap 5 en 6. De typische cyclus is: code schrijven → builden → Pico aansluiten → flashen → testen.
 
 ---
 
