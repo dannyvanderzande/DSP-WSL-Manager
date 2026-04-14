@@ -3004,11 +3004,17 @@ $script:loadDismissHandler = [System.Windows.Input.KeyEventHandler]{
         $pnlLoading.Visibility = "Collapsed"
         $pnlMainContent.Visibility = "Visible"
 
-        # Check for updates after loading — bij beschikbare updates direct aanbieden
-        try {
-            Check-ForUpdates
-            if ($script:updateAvailable) { Install-Updates }
-        } catch { Write-Log "Update check overgeslagen: $_" }
+        # Check for updates na korte vertraging zodat UI volledig geladen is
+        $updateTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $updateTimer.Interval = [TimeSpan]::FromSeconds(1)
+        $updateTimer.Add_Tick({
+            $this.Stop()
+            try {
+                Check-ForUpdates
+                if ($script:updateAvailable) { Install-Updates }
+            } catch { Write-Log "Update check overgeslagen: $_" }
+        })
+        $updateTimer.Start()
     }
 }
 $window.Add_PreviewKeyDown($script:loadDismissHandler)
