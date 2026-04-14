@@ -1601,6 +1601,7 @@ function Restart-App {
 
     $batLines = @()
     $batLines += "@echo off"
+    $batLines += "taskkill /F /PID $PID >nul 2>&1"
     $batLines += "timeout /t 2 /nobreak >nul"
 
     # Als er een temp update-map is, kopieer bestanden naar de doelmap
@@ -1621,7 +1622,8 @@ function Restart-App {
     [System.IO.File]::WriteAllText($restartBat, $batContent, [System.Text.Encoding]::ASCII)
     Write-Log "Restart bat geschreven: $restartBat"
     Start-Process cmd.exe -ArgumentList "/c `"$restartBat`"" -WindowStyle Hidden
-    Stop-Process -Id $PID -Force
+    # Bat file doet de kill via taskkill — hier alleen wachten
+    Start-Sleep -Seconds 5
 }
 
 function Install-Updates {
