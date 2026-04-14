@@ -3004,8 +3004,11 @@ $script:loadDismissHandler = [System.Windows.Input.KeyEventHandler]{
         $pnlLoading.Visibility = "Collapsed"
         $pnlMainContent.Visibility = "Visible"
 
-        # Check for updates after loading
-        try { Check-ForUpdates } catch { Write-Log "Update check overgeslagen: $_" }
+        # Check for updates after loading — bij beschikbare updates direct aanbieden
+        try {
+            Check-ForUpdates
+            if ($script:updateAvailable) { Install-Updates }
+        } catch { Write-Log "Update check overgeslagen: $_" }
     }
 }
 $window.Add_PreviewKeyDown($script:loadDismissHandler)
