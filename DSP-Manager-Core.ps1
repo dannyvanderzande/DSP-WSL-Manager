@@ -2761,8 +2761,21 @@ $btnBuild.Add_Click({
     $script:buildInProgress = $true
     $btnBuild.IsEnabled = $false
     $btnFlash.IsEnabled = $false
-    $btnBuild.Content = "`u{1F528} Builden..."
+    $script:buildStartTime = [DateTime]::Now
+    $btnBuild.Content = "`u{1F528} Builden... 0:00"
     $window.Title = "DSP WSL Manager - BEZIG MET BUILDEN..."
+
+    # Timer: update knoptekst elke seconde met verstreken tijd
+    $script:buildTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:buildTimer.Interval = [TimeSpan]::FromSeconds(1)
+    $script:buildTimer.Add_Tick({
+        $elapsed = [DateTime]::Now - $script:buildStartTime
+        $mins = [int][math]::Floor($elapsed.TotalMinutes)
+        $secs = [int]($elapsed.Seconds)
+        $btnBuild.Content = "`u{1F528} Builden... ${mins}:$($secs.ToString('D2'))"
+    })
+    $script:buildTimer.Start()
+
     Write-Log "=== BUILD GESTART ==="
     Write-Log "Build starten..."
 
@@ -2822,6 +2835,11 @@ echo ">>> BUILD VOLTOOID"
     } -OnComplete {
         param($success, $errorMsg, $resultData)
         $script:buildInProgress = $false
+        if ($script:buildTimer) { $script:buildTimer.Stop() }
+        $elapsed = [DateTime]::Now - $script:buildStartTime
+        $mins = [int][math]::Floor($elapsed.TotalMinutes)
+        $secs = [int]($elapsed.Seconds)
+        Write-Log "Build duur: ${mins}:$($secs.ToString('D2'))"
         $btnBuild.Content = "`u{1F528} Build Project"
         $window.Title = "DSP WSL Manager"
         Update-TerminalButton
