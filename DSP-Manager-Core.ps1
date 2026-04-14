@@ -6,7 +6,7 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
 # Versie
-$script:appVersion = "2.0.0"
+$script:appVersion = "2.0.1"
 
 # Determine script directory early (needed for log and config files)
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Path) { Split-Path $MyInvocation.MyCommand.Path } else { (Get-Location).Path }
