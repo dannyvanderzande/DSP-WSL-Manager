@@ -1159,42 +1159,147 @@ function Update-DistroButtons {
 # Log file in same directory as script
 $logFile = Join-Path $scriptDir "WSL-Setup.log"
 
+# Helper: check if current session is elevated (admin)
+function Test-IsAdmin {
+    try {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $p = New-Object Security.Principal.WindowsPrincipal($id)
+        return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch { return $false }
+}
+
+# Script-level variabele waarop callers de laatste elevated exit code kunnen nalezen.
+# 0 = success, 1 = exception in elevated script, -2 = UAC geweigerd / elevatie-fout,
+# -3 = Start-Process gaf geen process terug, anders = raw exit code van powershell.
+$script:lastElevatedExitCode = 0
+
+# Helper: ruim orphaned usbipd.exe --auto-attach watchers op die zijn achtergebleven
+# uit eerdere (of gecrashte) sessies van deze app. De watchers blijven doordraaien
+# omdat ze als onafhankelijke background processes gestart worden.
+# $Silent=$true onderdrukt Write-Log calls (bv. tijdens startup-fase voor Write-Log bestaat).
+# $NoElevation=$true slaat de UAC-fallback voor admin-owned processes over (voor close-handler).
+function Stop-OrphanedAutoAttach {
+    param(
+        [bool]$Silent = $false,
+        [bool]$NoElevation = $false
+    )
+    try {
+        $procs = Get-CimInstance -ClassName Win32_Process -Filter "Name='usbipd.exe'" -ErrorAction SilentlyContinue |
+                 Where-Object { $_.CommandLine -and $_.CommandLine -match '--auto-attach' }
+        if (-not $procs) { return 0 }
+
+        $procIds = @($procs | ForEach-Object { $_.ProcessId })
+        $killedLocal = @()
+        $needElevated = @()
+
+        foreach ($procId in $procIds) {
+            try {
+                Stop-Process -Id $procId -Force -ErrorAction Stop
+                $killedLocal += $procId
+            } catch {
+                # Meestal admin-owned (gestart via elevated shell) — escaleren nodig.
+                $needElevated += $procId
+            }
+        }
+
+        if ($needElevated.Count -gt 0 -and -not $NoElevation) {
+            # Één enkele elevated taskkill batch — voorkomt meerdere UAC prompts.
+            $idArgs = ($needElevated | ForEach-Object { "/PID $_" }) -join ' '
+            try {
+                Start-Process -FilePath "taskkill.exe" `
+                    -ArgumentList "/F $idArgs" `
+                    -Verb RunAs -WindowStyle Hidden -Wait -ErrorAction Stop | Out-Null
+                $killedLocal += $needElevated
+            } catch {
+                if (-not $Silent -and (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
+                    Write-Log "[Cleanup] Kon $($needElevated.Count) admin-owned usbipd-watcher(s) niet killen — UAC geweigerd?"
+                }
+            }
+        }
+
+        if (-not $Silent -and $killedLocal.Count -gt 0 -and (Get-Command Write-Log -ErrorAction SilentlyContinue)) {
+            Write-Log "[Cleanup] $($killedLocal.Count) orphaned usbipd --auto-attach process(en) opgeruimd."
+        }
+        return $killedLocal.Count
+    } catch {
+        return 0
+    }
+}
+
 # Helper: run a command as administrator (elevated) and capture output
 # Uses a temp script + output file since elevated processes can't pipe back to the caller
 function Invoke-Elevated {
     param([string]$Command)
+    $script:lastElevatedExitCode = -1
     $outputFile = Join-Path $env:TEMP "wsl-admin-output.txt"
     $scriptFile = Join-Path $env:TEMP "wsl-admin-cmd.ps1"
     Remove-Item $outputFile -ErrorAction SilentlyContinue
-    
-    # Fix 1: Vervang 'usbipd' door het absolute pad, omdat het Admin account vaak een ander PATH heeft
+    Remove-Item $scriptFile -ErrorAction SilentlyContinue
+
+    # Fix 1: Vervang kale 'usbipd' door het absolute pad, omdat het Admin account vaak
+    # een ander PATH heeft. Negative lookahead (?!\.exe) voorkomt dat we 'usbipd.exe'
+    # binnen b.v. 'Start-Process usbipd.exe ...' ook vervangen (wat brak script opleverde).
     $cmdText = $Command
     $usbipdCmd = Get-Command usbipd.exe -ErrorAction SilentlyContinue
     if ($usbipdCmd) {
-        $cmdText = $cmdText -replace '\busbipd\b', "& '$($usbipdCmd.Source)'"
+        $cmdText = $cmdText -replace '\busbipd(?!\.exe)\b', "& '$($usbipdCmd.Source)'"
     }
 
-    # Write a small script that runs the command and captures all output
+    # Fix 3: Als de app al elevated draait, hoeven we geen UAC prompt te tonen —
+    # run in-process via Invoke-Expression. Scheelt de dubbele UAC prompt en maakt
+    # ook duidelijk dat 'app als admin starten' een geldige fallback is.
+    if (Test-IsAdmin) {
+        $lines = @()
+        try {
+            $out = Invoke-Expression $cmdText 2>&1
+            $lines = @($out | ForEach-Object { "$_" })
+            $script:lastElevatedExitCode = 0
+        } catch {
+            $lines = @("[Fout] $($_.Exception.Message)")
+            $script:lastElevatedExitCode = 1
+        }
+        return $lines
+    }
+
+    # Write a small script that runs the command and captures all output.
+    # $ErrorActionPreference = 'SilentlyContinue' voorkomt dat PowerShell de stderr
+    # output van native tools (zoals de info-berichten van usbipd) als NativeCommandError
+    # wrapt en naar het outputfile schrijft. We vangen echte errors via try/catch.
     $scriptContent = @"
+`$ErrorActionPreference = 'SilentlyContinue'
 try {
     `$(
         $cmdText
     ) *>&1 | Out-File -FilePath '$outputFile' -Encoding UTF8 -Append
+    exit 0
 } catch {
     `$_.Exception.Message | Out-File -FilePath '$outputFile' -Encoding UTF8 -Append
+    exit 1
 }
 "@
     Set-Content -Path $scriptFile -Value $scriptContent -Encoding UTF8
+
     # Fix 2: -WindowStyle Hidden is verwijderd. Deze vlag blokkeert op veel pc's stilletjes de UAC prompt!
-    $proc = Start-Process powershell.exe `
-        -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFile`"" `
-        -Verb RunAs -Wait -PassThru -ErrorAction SilentlyContinue
+    # Fix 4: -ErrorAction Stop i.p.v. SilentlyContinue zodat we UAC-weigering kunnen detecteren.
+    $proc = $null
+    try {
+        $proc = Start-Process powershell.exe `
+            -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFile`"" `
+            -Verb RunAs -Wait -PassThru -ErrorAction Stop
+    } catch {
+        $script:lastElevatedExitCode = -2
+        Remove-Item $scriptFile -ErrorAction SilentlyContinue
+        return @("[Elevatie mislukt of geweigerd] $($_.Exception.Message)")
+    }
+
     $lines = @()
     if (Test-Path $outputFile) {
         $lines = Get-Content $outputFile -Encoding UTF8 -ErrorAction SilentlyContinue
         Remove-Item $outputFile -ErrorAction SilentlyContinue
     }
     Remove-Item $scriptFile -ErrorAction SilentlyContinue
+
+    if ($proc) { $script:lastElevatedExitCode = $proc.ExitCode } else { $script:lastElevatedExitCode = -3 }
     return $lines
 }
 
@@ -1662,9 +1767,8 @@ function Install-Updates {
 
     if ($errors.Count -eq 0) {
         Write-Log "Alle $updatedCount bestand(en) bijgewerkt."
+        Show-CustomDialog -Message "Update succesvol!`n`n$updatedCount bestand(en) bijgewerkt.`nHerstart de applicatie om de update te activeren." -Title "Update Voltooid" -Buttons "OK" -Type "Success"
         $statusTimer.Stop()
-        # Gewone MessageBox ipv Show-CustomDialog (DispatcherFrame blokkeert Close)
-        [System.Windows.MessageBox]::Show("Update succesvol! $updatedCount bestand(en) bijgewerkt.`nHerstart de applicatie om de update te activeren.", "Update Voltooid", "OK", "Information") | Out-Null
         $window.Close()
     } else {
         $errList = $errors -join ", "
@@ -2169,7 +2273,14 @@ $btnPico.Add_Click({
     Write-Log "usbipd gevonden, USB-apparaten scannen..."
 
     # Step 2: Detect Pico via usbipd list
-    $usbipdOutput = & usbipd list 2>&1 | Out-String
+    # Subshell + SilentlyContinue voorkomt dat usbipd's native stderr warnings
+    # (bijv. 'Unknown USB filter edevmon / USBPcap') als rode NativeCommandError
+    # in het log opgenoemd worden — de warning text blijft wel in de output
+    # string staan via 2>&1.
+    $usbipdOutput = & {
+        $ErrorActionPreference = 'SilentlyContinue'
+        (& usbipd list 2>&1) | Out-String
+    }
     Write-Log $usbipdOutput
 
     # Negeer opgeslagen spookapparaten, focus alleen op fysiek aangesloten poorten
@@ -2341,27 +2452,69 @@ $btnPico.Add_Click({
             return
         }
 
-        # Bind (met force) en Attach (met wsl flag)
-        Write-Log "Pico binden (admin rechten nodig): $idFlag $devId..."
-        $lines = Invoke-Elevated "usbipd bind $idFlag $devId --force"
+        # Bind + Attach in EEN elevated call, zodat de attach-stap ook admin rechten heeft.
+        # Anders vereist 'usbipd attach' lidmaatschap van de lokale 'usbipd' groep, wat pas
+        # na uit-/inloggen actief wordt en op verse installs stille failures geeft.
+        # NB: Geen --auto-attach hier (synchrone attach, elevated PS kan direct afsluiten).
+        # Auto-attach is alleen nodig in de flash-flow voor BOOTSEL-reconnect.
+        Write-Log "Pico binden + koppelen (admin rechten nodig): $idFlag $devId..."
+        $bindAndAttach = "usbipd bind $idFlag $devId --force; usbipd attach --wsl $idFlag $devId"
+        $lines = Invoke-Elevated $bindAndAttach
         foreach ($line in $lines) { Write-Console $line }
-        Start-Sleep -Seconds 1
-        Write-Log "Pico auto-koppelen aan WSL (background proces)..."
-        Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $idFlag $devId --auto-attach" -WindowStyle Hidden
 
-        # Verificatie in WSL
-        Start-Sleep -Seconds 2
-        $lsusbOutput = & wsl -d $script:dspDistro -- lsusb 2>&1 | Out-String
-        Write-Log "lsusb output: $lsusbOutput"
-        $picoFound = $lsusbOutput -match "2e8a|RP2040|RP2350"
+        if ($script:lastElevatedExitCode -ne 0) {
+            Write-Log "Elevatie mislukt of geweigerd (exitcode: $($script:lastElevatedExitCode))."
+            Show-CustomDialog -Message "Admin rechten zijn niet toegekend.`n`nDe Pico kan niet worden gekoppeld zonder admin rechten voor 'usbipd bind'.`n`nProbeer opnieuw en klik 'Ja' op de UAC-prompt." -Title "Admin rechten nodig" -Buttons "OK" -Type "Warning"
+            Update-PicoButton
+            return
+        }
 
-        if ($picoFound) {
-            Write-Log "Pico zichtbaar in WSL (lsusb bevestigd)."
+        # Verificatie: usbipd list moet "Attached" tonen voor dit device.
+        # We pompen de UI dispatcher tussen de retries zodat de app niet bevriest.
+        # lsusb-verificatie is verwijderd — die blokkeerde UI en de usbipd-status is
+        # autoritatief genoeg voor de gebruiker.
+        $txtStatus.Text = "Pico-verbinding verifiëren..."
+        $statusOk = $false
+
+        # UI pump helper (WPF equivalent van Application.DoEvents)
+        $pumpUI = {
+            param($ms)
+            $deadline = (Get-Date).AddMilliseconds($ms)
+            while ((Get-Date) -lt $deadline) {
+                $frame = New-Object System.Windows.Threading.DispatcherFrame
+                $null = [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke(
+                    [System.Windows.Threading.DispatcherPriority]::Background,
+                    [Action]{ $frame.Continue = $false }
+                )
+                [System.Windows.Threading.Dispatcher]::PushFrame($frame)
+                Start-Sleep -Milliseconds 50
+            }
+        }
+
+        for ($i = 1; $i -le 3; $i++) {
+            & $pumpUI 600
+            $usbipdStatus = ""
+            try {
+                $usbipdStatus = & {
+                    $ErrorActionPreference = 'SilentlyContinue'
+                    (& usbipd list 2>&1) | Out-String
+                }
+            } catch { $usbipdStatus = "" }
+            foreach ($ln in ($usbipdStatus -split "`r?`n")) {
+                if ($ln -match [regex]::Escape($devId) -and $ln -match "Attached") { $statusOk = $true; break }
+            }
+            if ($statusOk) { break }
+        }
+        Write-Log ("usbipd status na attach: " + $(if ($statusOk) { 'Attached' } else { 'NIET Attached' }))
+        $txtStatus.Text = ""
+
+        if ($statusOk) {
+            Write-Log "Pico gekoppeld (usbipd: Attached)."
             $btnPico.Content = "$picoIcon Pico ontkoppelen"
             Show-CustomDialog -Message "Pico is succesvol gekoppeld aan WSL!`n`nHet apparaat is nu beschikbaar in de WSL-omgeving." -Title "Pico Gekoppeld" -Buttons "OK" -Type "Info"
         } else {
-            Write-Log "Pico niet zichtbaar in WSL na attach."
-            Show-CustomDialog -Message "Pico is gekoppeld maar niet zichtbaar in WSL.`n`nMogelijk moet de WSL distro herstarten of ligt het aan de rechten." -Title "Verificatie mislukt" -Buttons "OK" -Type "Warning"
+            Write-Log "Pico niet attached in usbipd — koppelen mislukt."
+            Show-CustomDialog -Message "Koppelen is mislukt.`n`nMogelijke oorzaken:`n- Na een verse 'usbipd-win' installatie moet je uit- en opnieuw inloggen zodat de 'usbipd' groep actief wordt`n- De USBPcap of edevmon filter driver blokkeert toegang tot de Pico`n- De Pico is ontkoppeld tussen bind en attach`n`nTip: check met 'whoami /groups | findstr usbipd' in PowerShell of je lid bent." -Title "Koppelen mislukt" -Buttons "OK" -Type "Warning"
         }
         Update-PicoButton
     }
@@ -2515,7 +2668,10 @@ function Flash-Pico {
         return
     }
 
-    $usbipdOut = & usbipd list 2>&1 | Out-String
+    $usbipdOut = & {
+        $ErrorActionPreference = 'SilentlyContinue'
+        (& usbipd list 2>&1) | Out-String
+    }
     $connectedPart = $usbipdOut
     $persistedIdx = $usbipdOut.IndexOf("Persisted:")
     if ($persistedIdx -ge 0) { $connectedPart = $usbipdOut.Substring(0, $persistedIdx) }
@@ -2709,10 +2865,33 @@ fi
             Remove-Item $outputFile -ErrorAction SilentlyContinue
             $usbipdCmd = Get-Command usbipd.exe -ErrorAction SilentlyContinue
             $cmdText = $Command
-            if ($usbipdCmd) { $cmdText = $cmdText -replace '\busbipd\b', "& '$($usbipdCmd.Source)'" }
-            $scriptContent = "try { `$output = $cmdText 2>&1 | Out-String; Set-Content -Path '$outputFile' -Value `$output -Encoding UTF8 } catch { Set-Content -Path '$outputFile' -Value `$_.Exception.Message -Encoding UTF8 }"
+            # Fix: negative lookahead voorkomt dat 'usbipd.exe' (binnen Start-Process calls) ook
+            # ten onrechte vervangen wordt tot een broken script.
+            if ($usbipdCmd) { $cmdText = $cmdText -replace '\busbipd(?!\.exe)\b', "& '$($usbipdCmd.Source)'" }
+
+            # Als de app al elevated draait, skip UAC en run direct
+            $isAdmin = $false
+            try {
+                $idn = [Security.Principal.WindowsIdentity]::GetCurrent()
+                $pr = New-Object Security.Principal.WindowsPrincipal($idn)
+                $isAdmin = $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+            } catch {}
+            if ($isAdmin) {
+                try { return (Invoke-Expression $cmdText 2>&1 | Out-String) } catch { return $_.Exception.Message }
+            }
+
+            # $ErrorActionPreference='SilentlyContinue' voorkomt dat PowerShell stderr-output
+            # van native tools (usbipd info-berichten e.d.) als NativeCommandError naar de log wrapt.
+            $scriptContent = "`$ErrorActionPreference='SilentlyContinue'; try { `$output = $cmdText 2>&1 | Out-String; Set-Content -Path '$outputFile' -Value `$output -Encoding UTF8 ; exit 0 } catch { Set-Content -Path '$outputFile' -Value `$_.Exception.Message -Encoding UTF8 ; exit 1 }"
             Set-Content -Path $scriptFile -Value $scriptContent -Encoding UTF8
-            $proc = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File `"$scriptFile`"" -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction SilentlyContinue
+            # -WindowStyle Hidden verwijderd: kan op sommige machines stilletjes UAC blokkeren.
+            $proc = $null
+            try {
+                $proc = Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File `"$scriptFile`"" -Verb RunAs -Wait -PassThru -ErrorAction Stop
+            } catch {
+                Remove-Item $scriptFile -ErrorAction SilentlyContinue
+                return "[Elevatie mislukt of geweigerd] $($_.Exception.Message)"
+            }
             $result = ""; if (Test-Path $outputFile) { $result = Get-Content $outputFile -Raw -ErrorAction SilentlyContinue }
             Remove-Item $scriptFile, $outputFile -ErrorAction SilentlyContinue
             return $result
@@ -2726,9 +2905,8 @@ fi
             Start-Sleep -Seconds 3
 
             BG-Status "Pico opnieuw binden en koppelen (admin rechten nodig)..."
-            BG-Elevated "usbipd bind $($params.idFlag) $($params.devId) --force" | Out-Null
-            Start-Sleep -Seconds 1
-            Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $($params.idFlag) $($params.devId) --auto-attach" -WindowStyle Hidden
+            # Combineer bind + attach in EEN elevated call zodat attach ook admin rechten heeft.
+            BG-Elevated "usbipd bind $($params.idFlag) $($params.devId) --force; Start-Sleep -Milliseconds 500; Start-Process -FilePath usbipd.exe -ArgumentList 'attach --wsl $($params.idFlag) $($params.devId) --auto-attach' -WindowStyle Hidden" | Out-Null
             Start-Sleep -Seconds 2
         }
 
@@ -2743,23 +2921,22 @@ fi
 
         if ($params.detachedOthers.Count -gt 0) {
             BG-Status "Andere Pico's weer aankoppelen..."
-            $bindCmds = @()
+            # Bind EN attach voor elk device in EEN elevated call (1 UAC prompt, attach erft admin)
+            $bindAttachCmds = @()
             foreach ($dev in $params.detachedOthers) {
-                $bindCmds += "usbipd bind $($dev.Flag) $($dev.Id) --force"
+                $bindAttachCmds += "usbipd bind $($dev.Flag) $($dev.Id) --force"
+                $bindAttachCmds += "Start-Sleep -Milliseconds 300"
+                $bindAttachCmds += "Start-Process -FilePath usbipd.exe -ArgumentList 'attach --wsl $($dev.Flag) $($dev.Id) --auto-attach' -WindowStyle Hidden"
             }
-            BG-Elevated ($bindCmds -join "; ") | Out-Null
-            Start-Sleep -Seconds 1
-            foreach ($dev in $params.detachedOthers) {
-                Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $($dev.Flag) $($dev.Id) --auto-attach" -WindowStyle Hidden
-            }
+            BG-Elevated ($bindAttachCmds -join "; ") | Out-Null
         }
 
         if ($flashSuccess) {
             BG-Status "Wachten op herstart van de Pico naar applicatie-modus..."
             Start-Sleep -Seconds 3
             BG-Status "Pico opnieuw binden en koppelen (applicatie-modus)..."
-            BG-Elevated "usbipd bind $($params.idFlag) $($params.devId) --force" | Out-Null
-            Start-Process -FilePath "usbipd.exe" -ArgumentList "attach --wsl $($params.idFlag) $($params.devId) --auto-attach" -WindowStyle Hidden
+            # Combineer bind + attach in EEN elevated call
+            BG-Elevated "usbipd bind $($params.idFlag) $($params.devId) --force; Start-Sleep -Milliseconds 500; Start-Process -FilePath usbipd.exe -ArgumentList 'attach --wsl $($params.idFlag) $($params.devId) --auto-attach' -WindowStyle Hidden" | Out-Null
         }
 
         $sync.ResultData = $flashSuccess
@@ -2847,8 +3024,8 @@ echo ">>> Git safe directory instellen..."
 git config --global --add safe.directory "$wslProjectPath"
 git config --global --add safe.directory "`$PICO_SDK_PATH"
 
-echo ">>> Submodules ophalen..."
-git submodule update --init --recursive
+echo ">>> Submodules ophalen (dit kan even duren)..."
+git submodule update --init --recursive --progress
 
 echo ">>> Build directory opschonen en aanmaken..."
 rm -rf build
@@ -2975,8 +3152,11 @@ function Update-PicoButton {
         # Check if usbipd is available and Pico is attached
         $usbipdExe = Get-Command usbipd.exe -ErrorAction SilentlyContinue
         if ($usbipdExe) {
-            $usbipdOut = & usbipd list 2>&1 | Out-String
-            
+            $usbipdOut = & {
+                $ErrorActionPreference = 'SilentlyContinue'
+                (& usbipd list 2>&1) | Out-String
+            }
+
             $connectedPart = $usbipdOut
             $persistedIdx = $usbipdOut.IndexOf("Persisted:")
             if ($persistedIdx -ge 0) { $connectedPart = $usbipdOut.Substring(0, $persistedIdx) }
@@ -3048,6 +3228,28 @@ $statusTimer.Start()
 Set-Content -Path $logFile -Value "========== DSP WSL Manager gestart: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ==========" -Encoding UTF8
 $txtLog.Text = ""
 Write-Log "Logbestand: $logFile"
+
+# Laag 1 — Startup cleanup: ruim orphaned usbipd.exe --auto-attach watchers op
+# uit eerdere sessies. Dit is de belangrijkste laag: dekt normale close, crash,
+# taskkill, BSOD, stroomuitval — elke vorm van vorige-sessie-einde.
+$orphansKilled = Stop-OrphanedAutoAttach -Silent:$false
+if ($orphansKilled -gt 0) {
+    Write-Log "Startup-cleanup voltooid: $orphansKilled orphaned process(en) verwijderd."
+}
+
+# Laag 3 — AppDomain.ProcessExit fallback: vangt exits via Environment.Exit(),
+# unhandled exceptions in de CLR, en de meeste 'nette' crash scenarios.
+# Werkt NIET bij: taskkill /F, StackOverflowException, OS-level process termination.
+# Voor die gevallen is Laag 1 (startup cleanup) de vangnet.
+try {
+    [System.AppDomain]::CurrentDomain.add_ProcessExit({
+        # NoElevation:$true — tijdens ProcessExit kunnen we geen UAC prompt meer
+        # tonen. Orphans die admin rechten vereisen worden volgende startup opgeruimd.
+        try { Stop-OrphanedAutoAttach -Silent:$true -NoElevation:$true | Out-Null } catch {}
+    })
+} catch {
+    Write-Log "[Warning] Kon AppDomain.ProcessExit handler niet registreren: $($_.Exception.Message)"
+}
 
 # Show window immediately with loading state, then run checks
 Set-ButtonsEnabled $false
@@ -3214,6 +3416,17 @@ $window.Add_ContentRendered({
     $txtStatus.Text = "Systeem controleren..."
     $script:loadStep = 0
     $loadTimer.Start()
+})
+
+# Laag 2 — Window.Closing handler: nette cleanup bij normaal afsluiten
+# (X-knop, Alt+F4, programmatic Close). NoElevation:$true voorkomt een UAC
+# prompt op het moment dat de user juist net gesloten heeft — admin-owned
+# watchers worden bij de volgende startup opgeruimd (Laag 1).
+$window.Add_Closing({
+    try {
+        $n = Stop-OrphanedAutoAttach -Silent:$true -NoElevation:$true
+        if ($n -gt 0) { Write-Log "Afsluiten: $n usbipd --auto-attach process(en) opgeruimd." }
+    } catch {}
 })
 
 # Show window
